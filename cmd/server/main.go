@@ -1,59 +1,40 @@
 package main
 
 import (
-	"database/sql"
 	"log"
 	"os"
 
 	"github.com/gofiber/fiber/v2"
-	_ "github.com/lib/pq"
 )
 
 func main() {
 
 	app := fiber.New()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-
-	if databaseURL == "" {
-		log.Fatal("DATABASE_URL is missing")
-	}
-
-	db, err := sql.Open("postgres", databaseURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	err = db.Ping()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	// Root route
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Gully Cricket Backend Running")
 	})
 
+	// Matches route (temporary mock)
 	app.Get("/matches", func(c *fiber.Ctx) error {
 
-		rows, err := db.Query("SELECT id, team1, team2, match_time, status FROM matches")
-		if err != nil {
-			return c.Status(500).SendString(err.Error())
-		}
-
 		type Match struct {
-			ID        int
-			Team1     string
-			Team2     string
-			MatchTime string
-			Status    string
+			ID        int    `json:"id"`
+			Team1     string `json:"team1"`
+			Team2     string `json:"team2"`
+			MatchTime string `json:"match_time"`
+			Status    string `json:"status"`
 		}
 
-		matches := []Match{}
-
-		for rows.Next() {
-			var m Match
-			rows.Scan(&m.ID, &m.Team1, &m.Team2, &m.MatchTime, &m.Status)
-			matches = append(matches, m)
+		matches := []Match{
+			{
+				ID:        1,
+				Team1:     "India",
+				Team2:     "Australia",
+				MatchTime: "2026-03-05T19:30:00Z",
+				Status:    "upcoming",
+			},
 		}
 
 		return c.JSON(matches)
@@ -64,5 +45,6 @@ func main() {
 		port = "8080"
 	}
 
+	log.Println("Server starting on port", port)
 	log.Fatal(app.Listen(":" + port))
 }
