@@ -9,24 +9,25 @@ import (
 	_ "github.com/lib/pq"
 )
 
-type Match struct {
-	ID        int    `json:"id"`
-	Team1     string `json:"team1"`
-	Team2     string `json:"team2"`
-	MatchTime string `json:"match_time"`
-	Status    string `json:"status"`
-}
-
 func main() {
 
+	app := fiber.New()
+
 	databaseURL := os.Getenv("DATABASE_URL")
+
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL is missing")
+	}
 
 	db, err := sql.Open("postgres", databaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	app := fiber.New()
+	err = db.Ping()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Gully Cricket Backend Running")
@@ -39,7 +40,15 @@ func main() {
 			return c.Status(500).SendString(err.Error())
 		}
 
-		var matches []Match
+		type Match struct {
+			ID        int
+			Team1     string
+			Team2     string
+			MatchTime string
+			Status    string
+		}
+
+		matches := []Match{}
 
 		for rows.Next() {
 			var m Match
