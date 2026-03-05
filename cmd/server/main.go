@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"os"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	_ "github.com/lib/pq"
