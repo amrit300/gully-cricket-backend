@@ -190,6 +190,15 @@ func createTeam(c *fiber.Ctx) error {
 		return err
 	}
 
+	// TEAM VALIDATION
+	err := validateTeam(req.Players)
+
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
 	tx, err := db.Begin()
 
 	if err != nil {
@@ -234,4 +243,69 @@ func createTeam(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"team_id": teamID,
 	})
+}
+func validateTeam(playerIDs []int) error {
+
+	if len(playerIDs) != 11 {
+		return fmt.Errorf("team must contain 11 players")
+	}
+
+	rows, err := db.Query(`
+	SELECT team, role, credit
+	FROM players
+	WHERE id = ANY($1)
+	`, pq.Array(playerIDs))
+
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	teamCount := map[string]int{}
+	roleCount := map[string]int{}
+
+	totalCredit := 0.0
+
+	for rows.Next() {
+
+		var team string
+		var role string
+		var credit float64
+
+		rows.Scan(&team, &role, &credit)
+
+		teamCount[team]++
+		roleCount[role]++
+
+		totalCredit += credit
+	}
+
+	if totalCredit > 100 {
+		return fmt.Errorf("credit limit exceeded")
+	}
+
+	for _, count := range teamCount {
+		if count > 7 {
+			return fmt.Errorf("max 7 players allowed from one team")
+		}
+	}
+
+	if roleCount["WK"] < 1 || roleCount["WK"] > 4 {
+		return fmt.Errorf("invalid wicketkeeper count")
+	}
+
+	if roleCount["BAT"] < 3 || roleCount["BAT"] > 6 {
+		return fmt.Errorf("invalid batsman count")
+	}
+
+	if roleCount["ALL"] < 1 || roleCount["ALL"] > 4 {
+		return fmt.Errorf("invalid allrounder count")
+	}
+
+	if roleCount["BOWL"] < 3 || roleCount["BOWL"] > 6 {
+		return fmt.Errorf("invalid bowler count")
+	}
+
+	return nil
 }
