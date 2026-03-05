@@ -125,10 +125,25 @@ func createUser(c *fiber.Ctx) error {
 
 func getPlayers(c *fiber.Ctx) error {
 
-	rows, err := db.Query("SELECT id,name,team,role,credit FROM players")
+	matchID := c.Params("match_id")
+
+	if matchID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "match_id required",
+		})
+	}
+
+	rows, err := db.Query(`
+	SELECT id,name,team,role,credit
+	FROM players
+	WHERE match_id=$1
+	ORDER BY role,credit DESC
+	`, matchID)
 
 	if err != nil {
-		return err
+		return c.Status(500).JSON(fiber.Map{
+			"error": "database query failed",
+		})
 	}
 
 	defer rows.Close()
@@ -147,13 +162,19 @@ func getPlayers(c *fiber.Ctx) error {
 
 		var p Player
 
-		rows.Scan(
+		err := rows.Scan(
 			&p.ID,
 			&p.Name,
 			&p.Team,
 			&p.Role,
 			&p.Credit,
 		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "row scan failed",
+			})
+		}
 
 		players = append(players, p)
 	}
