@@ -8,7 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/lib/pq"
-	_ "github.com/lib/pq"
+	_"github.com/lib/pq"
 )
 
 var db *sql.DB
