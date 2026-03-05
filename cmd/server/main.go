@@ -53,7 +53,7 @@ func main() {
 	app.Post("/users", createUser)
 
 	// Get players
-	app.Get("/players", getPlayers)
+	app.Get("/players/:match_id", getPlayers)
 
 	// Create fantasy team
 	app.Post("/teams", createTeam)
