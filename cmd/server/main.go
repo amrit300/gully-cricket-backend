@@ -127,12 +127,21 @@ func createUser(c *fiber.Ctx) error {
 }
 
 func getPlayers(c *fiber.Ctx) error {
+func getPlayers(c *fiber.Ctx) error {
 
-	matchID := c.Params("match_id")
+	param := c.Params("match_id")
 
-	if matchID == "" {
+	if param == "" {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "match_id required",
+		})
+	}
+
+	matchID, err := strconv.Atoi(param)
+
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid match id",
 		})
 	}
 
