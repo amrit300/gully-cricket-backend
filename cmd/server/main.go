@@ -262,7 +262,7 @@ func getPlayers(c *fiber.Ctx) error {
 		log.Println("DB QUERY ERROR:",err)
 
 		return c.Status(500).JSON(fiber.Map{
-			"error"": err.Error(),
+			"error": err.Error(),
 		})
 	}
 
