@@ -1,18 +1,23 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"os"
-	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/lib/pq"
-	_"github.com/lib/pq"
 )
 
 var db *sql.DB
+
+// =========================
+// MODELS
+// =========================
 
 type User struct {
 	Username string `json:"username"`
@@ -22,53 +27,107 @@ type User struct {
 }
 
 type TeamRequest struct {
-	UserID      int   `json:"user_id"`
-	MatchID     int   `json:"match_id"`
+	UserID      int    `json:"user_id"`
+	MatchID     int    `json:"match_id"`
 	TeamName    string `json:"team_name"`
-	Captain     int   `json:"captain"`
-	ViceCaptain int   `json:"vice_captain"`
-	Players     []int `json:"players"`
+	Captain     int    `json:"captain"`
+	ViceCaptain int    `json:"vice_captain"`
+	Players     []int  `json:"players"`
 }
+
+type Player struct {
+	ID     int     `json:"id"`
+	Name   string  `json:"name"`
+	Team   string  `json:"team"`
+	Role   string  `json:"role"`
+	Credit float64 `json:"credit"`
+}
+
+// =========================
+// MAIN
+// =========================
 
 func main() {
 
-	// Connect database
+	// ---------------------
+	// Database Connection
+	// ---------------------
+
 	databaseURL := os.Getenv("DATABASE_URL")
 
+	if databaseURL == "" {
+		log.Fatal("DATABASE_URL not set")
+	}
+
 	var err error
+
 	db, err = sql.Open("postgres", databaseURL)
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("DB open error:", err)
 	}
 
-	app := fiber.New()
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
-	// Root route
+	err = db.Ping()
+
+	if err != nil {
+		log.Fatal("DB connection failed:", err)
+	}
+
+	log.Println("Database connected")
+
+	// ---------------------
+	// Fiber App
+	// ---------------------
+
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+
+			log.Println("ERROR:", err)
+
+			return c.Status(500).JSON(fiber.Map{
+				"error": "internal server error",
+			})
+		},
+	})
+
+	// ---------------------
+	// Routes
+	// ---------------------
+
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.SendString("Gully Cricket Backend Running")
 	})
 
-	// Matches route (temporary mock)
 	app.Get("/matches", getMatches)
 
-	// Create user
 	app.Post("/users", createUser)
 
-	// Get players
 	app.Get("/players/:match_id", getPlayers)
 
-	// Create fantasy team
 	app.Post("/teams", createTeam)
 
+	// ---------------------
+	// Start Server
+	// ---------------------
+
 	port := os.Getenv("PORT")
+
 	if port == "" {
 		port = "8080"
 	}
 
 	log.Println("Server starting on port", port)
+
 	log.Fatal(app.Listen(":" + port))
 }
+
+// =========================
+// MATCHES
+// =========================
 
 func getMatches(c *fiber.Ctx) error {
 
@@ -93,13 +152,31 @@ func getMatches(c *fiber.Ctx) error {
 	return c.JSON(matches)
 }
 
+// =========================
+// CREATE USER
+// =========================
+
 func createUser(c *fiber.Ctx) error {
 
 	var user User
 
 	if err := c.BodyParser(&user); err != nil {
-		return err
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid request body",
+		})
 	}
+
+	if user.Username == "" {
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "username required",
+		})
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	defer cancel()
 
 	query := `
 	INSERT INTO users (username,email,whatsapp,telegram)
@@ -109,7 +186,8 @@ func createUser(c *fiber.Ctx) error {
 
 	var id int
 
-	err := db.QueryRow(
+	err := db.QueryRowContext(
+		ctx,
 		query,
 		user.Username,
 		user.Email,
@@ -118,7 +196,22 @@ func createUser(c *fiber.Ctx) error {
 	).Scan(&id)
 
 	if err != nil {
-		return err
+
+		if pqErr, ok := err.(*pq.Error); ok {
+
+			if pqErr.Code == "23505" {
+
+				return c.Status(400).JSON(fiber.Map{
+					"error": "username already exists",
+				})
+			}
+		}
+
+		log.Println(err)
+
+		return c.Status(500).JSON(fiber.Map{
+			"error": "user creation failed",
+		})
 	}
 
 	return c.JSON(fiber.Map{
@@ -126,12 +219,16 @@ func createUser(c *fiber.Ctx) error {
 	})
 }
 
-func getPlayers(c *fiber.Ctx) error {
+// =========================
+// GET PLAYERS
+// =========================
+
 func getPlayers(c *fiber.Ctx) error {
 
 	param := c.Params("match_id")
 
 	if param == "" {
+
 		return c.Status(400).JSON(fiber.Map{
 			"error": "match_id required",
 		})
@@ -140,6 +237,7 @@ func getPlayers(c *fiber.Ctx) error {
 	matchID, err := strconv.Atoi(param)
 
 	if err != nil {
+
 		return c.Status(400).JSON(fiber.Map{
 			"error": "invalid match id",
 		})
@@ -153,20 +251,15 @@ func getPlayers(c *fiber.Ctx) error {
 	`, matchID)
 
 	if err != nil {
+
+		log.Println(err)
+
 		return c.Status(500).JSON(fiber.Map{
 			"error": "database query failed",
 		})
 	}
 
 	defer rows.Close()
-
-	type Player struct {
-		ID     int     `json:"id"`
-		Name   string  `json:"name"`
-		Team   string  `json:"team"`
-		Role   string  `json:"role"`
-		Credit float64 `json:"credit"`
-	}
 
 	var players []Player
 
@@ -183,6 +276,9 @@ func getPlayers(c *fiber.Ctx) error {
 		)
 
 		if err != nil {
+
+			log.Println(err)
+
 			return c.Status(500).JSON(fiber.Map{
 				"error": "row scan failed",
 			})
@@ -194,18 +290,40 @@ func getPlayers(c *fiber.Ctx) error {
 	return c.JSON(players)
 }
 
+// =========================
+// CREATE TEAM
+// =========================
+
 func createTeam(c *fiber.Ctx) error {
 
 	var req TeamRequest
 
 	if err := c.BodyParser(&req); err != nil {
-		return err
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid request",
+		})
+	}
+
+	if req.UserID == 0 || req.MatchID == 0 {
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "user_id and match_id required",
+		})
+	}
+
+	if req.Captain == req.ViceCaptain {
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "captain and vice captain cannot be same",
+		})
 	}
 
 	// TEAM VALIDATION
 	err := validateTeam(req.Players)
 
 	if err != nil {
+
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -233,7 +351,9 @@ func createTeam(c *fiber.Ctx) error {
 	).Scan(&teamID)
 
 	if err != nil {
+
 		tx.Rollback()
+
 		return err
 	}
 
@@ -245,25 +365,38 @@ func createTeam(c *fiber.Ctx) error {
 		`, teamID, playerID)
 
 		if err != nil {
+
 			tx.Rollback()
+
 			return err
 		}
 	}
 
-	tx.Commit()
+	err = tx.Commit()
+
+	if err != nil {
+
+		return err
+	}
 
 	return c.JSON(fiber.Map{
 		"team_id": teamID,
 	})
 }
+
+// =========================
+// TEAM VALIDATION
+// =========================
+
 func validateTeam(playerIDs []int) error {
 
 	if len(playerIDs) != 11 {
+
 		return fmt.Errorf("team must contain 11 players")
 	}
 
 	rows, err := db.Query(`
-	SELECT team, role, credit
+	SELECT team,role,credit
 	FROM players
 	WHERE id = ANY($1)
 	`, pq.Array(playerIDs))
@@ -285,37 +418,49 @@ func validateTeam(playerIDs []int) error {
 		var role string
 		var credit float64
 
-		rows.Scan(&team, &role, &credit)
+		err := rows.Scan(&team, &role, &credit)
+
+		if err != nil {
+			return err
+		}
 
 		teamCount[team]++
+
 		roleCount[role]++
 
 		totalCredit += credit
 	}
 
 	if totalCredit > 100 {
+
 		return fmt.Errorf("credit limit exceeded")
 	}
 
 	for _, count := range teamCount {
+
 		if count > 7 {
+
 			return fmt.Errorf("max 7 players allowed from one team")
 		}
 	}
 
 	if roleCount["WK"] < 1 || roleCount["WK"] > 4 {
+
 		return fmt.Errorf("invalid wicketkeeper count")
 	}
 
 	if roleCount["BAT"] < 3 || roleCount["BAT"] > 6 {
+
 		return fmt.Errorf("invalid batsman count")
 	}
 
 	if roleCount["ALL"] < 1 || roleCount["ALL"] > 4 {
+
 		return fmt.Errorf("invalid allrounder count")
 	}
 
 	if roleCount["BOWL"] < 3 || roleCount["BOWL"] > 6 {
+
 		return fmt.Errorf("invalid bowler count")
 	}
 
