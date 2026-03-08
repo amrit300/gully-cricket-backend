@@ -600,6 +600,10 @@ for rows.Next() {
 	roleCount[role]++
 	totalCredit += credit
 }
+	/* ADD DEBUG LOG HERE */
+log.Println("ROLE COUNT:", roleCount)
+
+/* THEN VALIDATION STARTS */
 
 if playerCount != 11 {
 	return fmt.Errorf("invalid player selection")
