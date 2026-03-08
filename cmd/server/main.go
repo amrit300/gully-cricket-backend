@@ -514,10 +514,12 @@ func joinContest(c *fiber.Ctx) error {
 	`, req.ContestID).Scan(&filled,&total)
 
 	if err != nil {
-		return c.Status(500).JSON(fiber.Map{
-			"error": "contest lookup failed",
-		})
-	}
+	log.Println("CONTEST QUERY ERROR:", err)
+
+	return c.Status(500).JSON(fiber.Map{
+		"error": err.Error(),
+	})
+}
 
 	if filled >= total {
 
