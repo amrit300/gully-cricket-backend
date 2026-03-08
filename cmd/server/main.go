@@ -125,6 +125,8 @@ log.Println("DATABASE_URL:", databaseURL)
 
 	app.Post("/join-contest", joinContest)
 
+	app.Get("/leaderboard/:contest_id", getLeaderboard)
+
 	// ---------------------
 	// Start Server
 	// ---------------------
@@ -600,9 +602,6 @@ for rows.Next() {
 	roleCount[role]++
 	totalCredit += credit
 }
-	/* ADD DEBUG LOG HERE */
-log.Println("ROLE COUNT:", roleCount)
-
 /* THEN VALIDATION STARTS */
 
 if playerCount != 11 {
@@ -643,4 +642,61 @@ if playerCount != 11 {
 	}
 
 	return nil
+}
+
+func getLeaderboard(c *fiber.Ctx) error {
+
+contestID, err := strconv.Atoi(c.Params("contest_id"))
+
+if err != nil {
+	return c.Status(400).JSON(fiber.Map{
+		"error":"invalid contest id",
+	})
+}
+
+rows, err := db.Query(`
+SELECT user_id, team_id, points, rank
+FROM leaderboard
+WHERE contest_id=$1
+ORDER BY rank ASC
+`, contestID)
+
+if err != nil {
+	return c.Status(500).JSON(fiber.Map{
+		"error":"database query failed",
+	})
+}
+
+defer rows.Close()
+
+type Entry struct {
+	UserID int `json:"user_id"`
+	TeamID int `json:"team_id"`
+	Points float64 `json:"points"`
+	Rank int `json:"rank"`
+}
+
+var leaderboard []Entry
+
+for rows.Next() {
+
+	var e Entry
+
+	err := rows.Scan(
+		&e.UserID,
+		&e.TeamID,
+		&e.Points,
+		&e.Rank,
+	)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error":"row scan failed",
+		})
+	}
+
+	leaderboard = append(leaderboard,e)
+}
+
+return c.JSON(leaderboard)
 }
