@@ -655,9 +655,9 @@ if err != nil {
 }
 
 rows, err := db.Query(`
-SELECT user_id, team_id, points, rank
+SELECT team_id, points, rank
 FROM leaderboard
-WHERE contest_id=$1
+WHERE match_id=$1
 ORDER BY rank ASC
 `, contestID)
 
