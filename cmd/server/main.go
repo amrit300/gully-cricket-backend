@@ -357,51 +357,44 @@ func getPlayers(c *fiber.Ctx) error {
 // =========================
 // CREATE TEAM
 // =========================
-
 func createTeam(c *fiber.Ctx) error {
 
 	var req TeamRequest
+	var err error
 
-	if err := c.BodyParser(&req); err != nil {
-
+	if err = c.BodyParser(&req); err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "invalid request",
 		})
 	}
 
 	if req.UserID == 0 || req.MatchID == 0 {
-
 		return c.Status(400).JSON(fiber.Map{
 			"error": "user_id and match_id required",
 		})
 	}
 
 	if req.Captain == req.ViceCaptain {
-
 		return c.Status(400).JSON(fiber.Map{
 			"error": "captain and vice captain cannot be same",
 		})
 	}
-	err := checkDailyTeamLimit(req.UserID)
 
-if err != nil {
-	return c.Status(400).JSON(fiber.Map{
-		"error": err.Error(),
-	})
-}
-
-	// TEAM VALIDATION
-	err := validateTeam(req.Players)
-
+	err = checkDailyTeamLimit(req.UserID)
 	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
 
+	err = validateTeam(req.Players)
+	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
 	tx, err := db.Begin()
-
 	if err != nil {
 		return err
 	}
@@ -422,9 +415,7 @@ if err != nil {
 	).Scan(&teamID)
 
 	if err != nil {
-
 		tx.Rollback()
-
 		return err
 	}
 
@@ -436,17 +427,13 @@ if err != nil {
 		`, teamID, playerID)
 
 		if err != nil {
-
 			tx.Rollback()
-
 			return err
 		}
 	}
 
 	err = tx.Commit()
-
 	if err != nil {
-
 		return err
 	}
 
@@ -454,7 +441,6 @@ if err != nil {
 		"team_id": teamID,
 	})
 }
-
 // =========================
 // TEAM VALIDATION
 // =========================
