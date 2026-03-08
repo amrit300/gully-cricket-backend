@@ -123,6 +123,8 @@ log.Println("DATABASE_URL:", databaseURL)
 	
 	app.Get("/contests/:match_id", getContests)
 
+	app.Post("/join-contest", joinContest)
+
 	// ---------------------
 	// Start Server
 	// ---------------------
@@ -477,6 +479,81 @@ func checkDailyTeamLimit(userID int) error {
 	}
 
 	return nil
+}
+func joinContest(c *fiber.Ctx) error {
+
+	type Request struct {
+		UserID int `json:"user_id"`
+		TeamID int `json:"team_id"`
+		ContestID int `json:"contest_id"`
+	}
+
+	var req Request
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid request",
+		})
+	}
+
+	tx, err := db.Begin()
+
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback()
+
+	var filled int
+	var total int
+
+	err = tx.QueryRow(`
+	SELECT filled_spots,total_spots
+	FROM contests
+	WHERE id=$1
+	`, req.ContestID).Scan(&filled,&total)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "contest lookup failed",
+		})
+	}
+
+	if filled >= total {
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "contest full",
+		})
+	}
+
+	_, err = tx.Exec(`
+	INSERT INTO contest_entries (contest_id,team_id,user_id)
+	VALUES ($1,$2,$3)
+	`, req.ContestID, req.TeamID, req.UserID)
+
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+	UPDATE contests
+	SET filled_spots = filled_spots + 1
+	WHERE id=$1
+	`, req.ContestID)
+
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "contest joined",
+	})
 }
 func validateTeam(playerIDs []int) error {
 
