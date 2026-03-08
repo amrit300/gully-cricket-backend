@@ -132,6 +132,8 @@ log.Println("DATABASE_URL:", databaseURL)
 
 	app.Get("/leaderboard/:contest_id", getLeaderboard)
 
+	app.Post("/match-event", processMatchEvent)
+
 	// ---------------------
 	// Start Server
 	// ---------------------
@@ -720,4 +722,56 @@ for rows.Next() {
 }
 
 return c.JSON(leaderboard)
+}
+
+func processMatchEvent(c *fiber.Ctx) error {
+
+	type Event struct {
+		PlayerID int `json:"player_id"`
+		Event    string `json:"event"`
+		Value    int `json:"value"`
+	}
+
+	var e Event
+
+	if err := c.BodyParser(&e); err != nil {
+		return err
+	}
+
+	points := 0
+
+	switch e.Event {
+
+	case "run":
+		points = e.Value
+
+	case "four":
+		points = 1
+
+	case "six":
+		points = 2
+
+	case "wicket":
+		points = 25
+
+	case "catch":
+		points = 8
+
+	case "stumping":
+		points = 12
+	}
+
+	_, err := db.Exec(`
+	UPDATE players
+	SET fantasy_points = fantasy_points + $1
+	WHERE id=$2
+	`, points, e.PlayerID)
+
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "event processed",
+	})
 }
