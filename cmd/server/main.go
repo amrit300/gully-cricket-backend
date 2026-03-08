@@ -94,6 +94,7 @@ log.Println("DATABASE_URL:", databaseURL)
 	}
 
 	log.Println("Database connected")
+	go leaderboardWorker()
 
 	// ---------------------
 	// Fiber App
@@ -875,4 +876,67 @@ func updateTeamPoints(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"status": "team points updated",
 	})
+}
+
+func leaderboardWorker() {
+
+	for {
+
+		time.Sleep(30 * time.Second)
+
+		rows, err := db.Query(`
+		SELECT DISTINCT match_id
+		FROM leaderboard
+		`)
+
+		if err != nil {
+			log.Println("worker query error:", err)
+			continue
+		}
+
+		for rows.Next() {
+
+			var matchID int
+
+			rows.Scan(&matchID)
+
+			// update team points
+			_, err = db.Exec(`
+			UPDATE teams t
+			SET total_points = sub.points
+			FROM (
+				SELECT tp.team_id,
+				SUM(p.fantasy_points) as points
+				FROM team_players tp
+				JOIN players p ON p.id=tp.player_id
+				GROUP BY tp.team_id
+			) sub
+			WHERE t.id=sub.team_id
+			AND t.match_id=$1
+			`, matchID)
+
+			if err != nil {
+				log.Println("team update error:", err)
+			}
+
+			// update leaderboard ranks
+			_, err = db.Exec(`
+			UPDATE leaderboard l
+			SET rank = r.rank
+			FROM (
+				SELECT team_id,
+				RANK() OVER (ORDER BY points DESC) as rank
+				FROM leaderboard
+				WHERE match_id=$1
+			) r
+			WHERE l.team_id=r.team_id
+			`, matchID)
+
+			if err != nil {
+				log.Println("leaderboard error:", err)
+			}
+		}
+
+		rows.Close()
+	}
 }
