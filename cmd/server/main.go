@@ -674,13 +674,6 @@ if err != nil {
 
 defer rows.Close()
 
-type Entry struct {
-	UserID int `json:"user_id"`
-	TeamID int `json:"team_id"`
-	Points float64 `json:"points"`
-	Rank int `json:"rank"`
-}
-
 var leaderboard []Entry
 
 for rows.Next() {
@@ -688,7 +681,6 @@ for rows.Next() {
 	var e Entry
 
 	err := rows.Scan(
-		&e.UserID,
 		&e.TeamID,
 		&e.Points,
 		&e.Rank,
