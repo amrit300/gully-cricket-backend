@@ -535,34 +535,58 @@ func joinContest(c *fiber.Ctx) error {
 		})
 	}
 
-	_, err = tx.Exec(`
-	INSERT INTO contest_entries (contest_id,team_id,user_id)
-	VALUES ($1,$2,$3)
-	`, req.ContestID, req.TeamID, req.UserID)
+_, err = tx.Exec(`
+INSERT INTO contest_entries (contest_id,team_id,user_id)
+VALUES ($1,$2,$3)
+`, req.ContestID, req.TeamID, req.UserID)
 
-	if err != nil {
-		return err
-	}
+if err != nil {
+	tx.Rollback()
+	return err
+}
 
-	_, err = tx.Exec(`
-	UPDATE contests
-	SET filled_spots = filled_spots + 1
-	WHERE id=$1
-	`, req.ContestID)
+var matchID int
 
-	if err != nil {
-		return err
-	}
+err = tx.QueryRow(`
+SELECT match_id FROM teams WHERE id=$1
+`, req.TeamID).Scan(&matchID)
 
-	err = tx.Commit()
+if err != nil {
+	tx.Rollback()
+	return err
+}
 
-	if err != nil {
-		return err
-	}
+_, err = tx.Exec(`
+INSERT INTO leaderboard (match_id, team_id, points, rank)
+VALUES ($1,$2,0,0)
+`, matchID, req.TeamID)
 
-	return c.JSON(fiber.Map{
-		"status": "contest joined",
-	})
+if err != nil {
+	tx.Rollback()
+	return err
+}
+
+_, err = tx.Exec(`
+UPDATE contests
+SET filled_spots = filled_spots + 1
+WHERE id=$1
+`, req.ContestID)
+
+if err != nil {
+	tx.Rollback()
+	return err
+}
+
+err = tx.Commit()
+
+if err != nil {
+	return err
+}
+
+return c.JSON(fiber.Map{
+	"status": "contest joined",
+})
+
 }
 func validateTeam(playerIDs []int) error {
 
