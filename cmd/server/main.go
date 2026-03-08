@@ -44,6 +44,14 @@ type Player struct {
 	Credit float64 `json:"credit"`
 }
 
+type Contest struct {
+	ID         int     `json:"id"`
+	MatchID    int     `json:"match_id"`
+	PrizePool  float64 `json:"prize_pool"`
+	TotalSpots int     `json:"total_spots"`
+	FilledSpots int    `json:"filled_spots"`
+	Status     string  `json:"status"`
+}
 // =========================
 // MAIN
 // =========================
@@ -116,6 +124,8 @@ if databaseURL == "" {
 	app.Get("/players/:match_id", getPlayers)
 
 	app.Post("/teams", createTeam)
+	
+	app.Get("/contests/:match_id", getContests)
 
 	// ---------------------
 	// Start Server
@@ -158,7 +168,58 @@ func getMatches(c *fiber.Ctx) error {
 
 	return c.JSON(matches)
 }
+func getContests(c *fiber.Ctx) error {
 
+	matchID, err := strconv.Atoi(c.Params("match_id"))
+
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid match id",
+		})
+	}
+
+	rows, err := db.Query(`
+		SELECT id, match_id, prize_pool, total_spots, filled_spots, status
+		FROM contests
+		WHERE match_id=$1
+	`, matchID)
+
+	if err != nil {
+		log.Println(err)
+
+		return c.Status(500).JSON(fiber.Map{
+			"error": "database query failed",
+		})
+	}
+
+	defer rows.Close()
+
+	var contests []Contest
+
+	for rows.Next() {
+
+		var contest Contest
+
+		err := rows.Scan(
+			&contest.ID,
+			&contest.MatchID,
+			&contest.PrizePool,
+			&contest.TotalSpots,
+			&contest.FilledSpots,
+			&contest.Status,
+		)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "row scan failed",
+			})
+		}
+
+		contests = append(contests, contest)
+	}
+
+	return c.JSON(contests)
+}
 // =========================
 // CREATE USER
 // =========================
