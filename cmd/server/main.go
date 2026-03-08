@@ -132,7 +132,12 @@ log.Println("DATABASE_URL:", databaseURL)
 
 	app.Get("/leaderboard/:contest_id", getLeaderboard)
 
+	app.Post("/update-leaderboard", updateLeaderboard)
+
 	app.Post("/match-event", processMatchEvent)
+
+	app.Post("/update-team-points", updateTeamPoints)
+	
 
 	// ---------------------
 	// Start Server
@@ -499,34 +504,42 @@ func joinContest(c *fiber.Ctx) error {
 
 	var req Request
 
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{
-			"error": "invalid request",
-		})
-	}
+if err := c.BodyParser(&req); err != nil {
+	return c.Status(400).JSON(fiber.Map{
+		"error": "invalid request",
+	})
+}
 
-	tx, err := db.Begin()
+tx, err := db.Begin()
 
-	if err != nil {
-		return err
-	}
+if err != nil {
+	return err
+}
 
-	defer tx.Rollback()
+defer tx.Rollback()
 
-	var filled int
-	var total int
+var filled int
+var total int
 
-	err = tx.QueryRow(`
-	SELECT filled_spots,total_spots
-	FROM contests
-	WHERE id=$1
-	`, req.ContestID).Scan(&filled,&total)
+err = tx.QueryRow(`
+SELECT filled_spots, total_spots
+FROM contests
+WHERE id=$1
+FOR UPDATE
+`, req.ContestID).Scan(&filled, &total)
 
-	if err != nil {
+if err != nil {
 	log.Println("CONTEST QUERY ERROR:", err)
 
 	return c.Status(500).JSON(fiber.Map{
-		"error": err.Error(),
+		"error": "contest query failed",
+	})
+}
+
+if filled >= total {
+
+	return c.Status(400).JSON(fiber.Map{
+		"error": "contest full",
 	})
 }
 
@@ -724,6 +737,39 @@ for rows.Next() {
 return c.JSON(leaderboard)
 }
 
+func updateLeaderboard(c *fiber.Ctx) error {
+
+	type Request struct {
+		MatchID int `json:"match_id"`
+	}
+
+	var req Request
+
+	if err := c.BodyParser(&req); err != nil {
+		return err
+	}
+
+	_, err := db.Exec(`
+	UPDATE leaderboard l
+	SET rank = r.rank
+	FROM (
+		SELECT team_id,
+		RANK() OVER (ORDER BY points DESC) as rank
+		FROM leaderboard
+		WHERE match_id=$1
+	) r
+	WHERE l.team_id=r.team_id
+	`, req.MatchID)
+
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"status":"leaderboard updated",
+	})
+}
+
 func processMatchEvent(c *fiber.Ctx) error {
 
 	type Event struct {
@@ -773,5 +819,60 @@ func processMatchEvent(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"status": "event processed",
+	})
+}
+
+func updateTeamPoints(c *fiber.Ctx) error {
+
+	type Request struct {
+		MatchID int `json:"match_id"`
+	}
+
+	var req Request
+
+	if err := c.BodyParser(&req); err != nil {
+		return err
+	}
+
+	rows, err := db.Query(`
+	SELECT t.id,
+	COALESCE(SUM(p.fantasy_points),0) as total
+	FROM teams t
+	JOIN team_players tp ON tp.team_id = t.id
+	JOIN players p ON p.id = tp.player_id
+	WHERE t.match_id = $1
+	GROUP BY t.id
+	`, req.MatchID)
+
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var teamID int
+		var points float64
+
+		err := rows.Scan(&teamID, &points)
+
+		if err != nil {
+			return err
+		}
+
+		_, err = db.Exec(`
+		UPDATE teams
+		SET total_points = $1
+		WHERE id = $2
+		`, points, teamID)
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "team points updated",
 	})
 }
