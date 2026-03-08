@@ -386,6 +386,13 @@ func createTeam(c *fiber.Ctx) error {
 			"error": "captain and vice captain cannot be same",
 		})
 	}
+	err := checkDailyTeamLimit(req.UserID)
+
+if err != nil {
+	return c.Status(400).JSON(fiber.Map{
+		"error": err.Error(),
+	})
+}
 
 	// TEAM VALIDATION
 	err := validateTeam(req.Players)
@@ -455,7 +462,39 @@ func createTeam(c *fiber.Ctx) error {
 // =========================
 // TEAM VALIDATION
 // =========================
+func checkDailyTeamLimit(userID int) error {
 
+	var teamLimit int
+
+	err := db.QueryRow(`
+	SELECT max_teams_per_day
+	FROM users
+	WHERE id=$1
+	`, userID).Scan(&teamLimit)
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch user plan")
+	}
+
+	var teamsToday int
+
+	err = db.QueryRow(`
+	SELECT COUNT(*)
+	FROM teams
+	WHERE user_id=$1
+	AND created_at >= CURRENT_DATE
+	`, userID).Scan(&teamsToday)
+
+	if err != nil {
+		return fmt.Errorf("failed to count teams today")
+	}
+
+	if teamsToday >= teamLimit {
+		return fmt.Errorf("daily team limit reached")
+	}
+
+	return nil
+}
 func validateTeam(playerIDs []int) error {
 
 	if len(playerIDs) != 11 {
