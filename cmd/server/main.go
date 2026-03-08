@@ -398,6 +398,7 @@ func createTeam(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
 	var teamID int
 
