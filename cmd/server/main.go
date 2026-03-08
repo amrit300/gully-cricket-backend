@@ -52,6 +52,11 @@ type Contest struct {
 	FilledSpots int    `json:"filled_spots"`
 	Status     string  `json:"status"`
 }
+type Entry struct {
+	TeamID int `json:"team_id"`
+	Points float64 `json:"points"`
+	Rank int `json:"rank"`
+}
 // =========================
 // MAIN
 // =========================
