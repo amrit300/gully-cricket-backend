@@ -430,7 +430,7 @@ if err != nil {
 
 	for _, playerID := range req.Players {
 
-		_, err := tx.Exec(`
+		_, err = tx.Exec(`
 		INSERT INTO team_players (team_id,player_id)
 		VALUES ($1,$2)
 		`, teamID, playerID)
