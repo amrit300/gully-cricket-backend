@@ -66,10 +66,6 @@ func main() {
 
 log.Println("DATABASE_URL:", databaseURL)
 
-if databaseURL == "" {
-	log.Fatal("DATABASE_URL not set")
-}
-
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
@@ -467,7 +463,7 @@ func checkDailyTeamLimit(userID int) error {
 	var teamLimit int
 
 	err := db.QueryRow(`
-	SELECT max_teams_per_day
+	SELECT max_teams_per_match
 	FROM users
 	WHERE id=$1
 	`, userID).Scan(&teamLimit)
@@ -508,35 +504,40 @@ func validateTeam(playerIDs []int) error {
 	WHERE id = ANY($1)
 	`, pq.Array(playerIDs))
 
+if err != nil {
+	return err
+}
+
+defer rows.Close()
+
+teamCount := map[string]int{}
+roleCount := map[string]int{}
+
+totalCredit := 0.0
+playerCount := 0
+
+for rows.Next() {
+
+	var team string
+	var role string
+	var credit float64
+
+	err := rows.Scan(&team, &role, &credit)
+
 	if err != nil {
 		return err
 	}
 
-	defer rows.Close()
+	playerCount++
 
-	teamCount := map[string]int{}
-	roleCount := map[string]int{}
+	teamCount[team]++
+	roleCount[role]++
+	totalCredit += credit
+}
 
-	totalCredit := 0.0
-
-	for rows.Next() {
-
-		var team string
-		var role string
-		var credit float64
-
-		err := rows.Scan(&team, &role, &credit)
-
-		if err != nil {
-			return err
-		}
-
-		teamCount[team]++
-
-		roleCount[role]++
-
-		totalCredit += credit
-	}
+if playerCount != 11 {
+	return fmt.Errorf("invalid player selection")
+}
 
 	if totalCredit > 100 {
 
