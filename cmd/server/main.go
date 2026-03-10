@@ -121,7 +121,7 @@ log.Println("DATABASE_URL:", databaseURL)
 
 	app.Get("/matches", getMatches)
 
-	app.Post("/users", createUser)
+	app.Post("/user/register", createUser)
 
 	app.Get("/players/:match_id", getPlayers)
 
@@ -260,21 +260,19 @@ func createUser(c *fiber.Ctx) error {
 	defer cancel()
 
 	query := `
-	INSERT INTO users (username,email,whatsapp,telegram)
-	VALUES ($1,$2,$3,$4)
-	RETURNING id
-	`
+INSERT INTO users (username, telegram)
+VALUES ($1,$2)
+RETURNING id
+`
 
-	var id int
+var id int
 
-	err := db.QueryRowContext(
-		ctx,
-		query,
-		user.Username,
-		user.Email,
-		user.Whatsapp,
-		user.Telegram,
-	).Scan(&id)
+err := db.QueryRowContext(
+	ctx,
+	query,
+	user.Username,
+	user.Telegram,
+).Scan(&id)
 
 	if err != nil {
 
