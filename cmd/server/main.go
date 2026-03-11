@@ -110,6 +110,12 @@ log.Println("DATABASE_URL:", databaseURL)
 			})
 		},
 	})
+	app.Use(func(c *fiber.Ctx) error {
+	c.Set("Access-Control-Allow-Origin", "*")
+	c.Set("Access-Control-Allow-Headers", "Content-Type")
+	c.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	return c.Next()
+})
 
 	// ---------------------
 	// Routes
