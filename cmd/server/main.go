@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+	"encoding/json"
+	"net/url"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/lib/pq"
@@ -57,6 +59,10 @@ type Entry struct {
 	TeamID int `json:"team_id"`
 	Points float64 `json:"points"`
 	Rank int `json:"rank"`
+}
+type RegisterRequest struct {
+	Username string `json:"username"`
+	InitData string `json:"initData"`
 }
 // =========================
 // MAIN
@@ -250,58 +256,86 @@ func getContests(c *fiber.Ctx) error {
 
 func createUser(c *fiber.Ctx) error {
 
-	var user User
+	var req RegisterRequest
 
-	if err := c.BodyParser(&user); err != nil {
+	if err := c.BodyParser(&req); err != nil {
 
 		return c.Status(400).JSON(fiber.Map{
-			"error": "invalid request body",
+			"error": "invalid request",
 		})
+
 	}
 
-	if user.Username == "" {
+	if req.Username == "" {
 
 		return c.Status(400).JSON(fiber.Map{
 			"error": "username required",
 		})
+
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	defer cancel()
+	if botToken == "" {
+
+		log.Println("BOT TOKEN NOT SET")
+
+		return c.Status(500).JSON(fiber.Map{
+			"error": "server configuration error",
+		})
+
+	}
+
+	/*
+	Verify Telegram identity
+	*/
+
+	if !verifyTelegram(req.InitData, botToken) {
+
+		return c.Status(403).JSON(fiber.Map{
+			"error": "telegram verification failed",
+		})
+
+	}
+
+	/*
+	Extract Telegram user id
+	*/
+
+	values, _ := url.ParseQuery(req.InitData)
+
+	userJSON := values.Get("user")
+
+	var telegramUser struct {
+		ID int `json:"id"`
+	}
+
+	json.Unmarshal([]byte(userJSON), &telegramUser)
 
 	query := `
-INSERT INTO users (username, telegram)
-VALUES ($1,$2)
-RETURNING id
-`
+	INSERT INTO users (username, telegram)
+	VALUES ($1,$2)
+	ON CONFLICT (telegram)
+	DO UPDATE SET username=EXCLUDED.username
+	RETURNING id
+	`
 
-var id int
+	var id int
 
-err := db.QueryRowContext(
-	ctx,
-	query,
-	user.Username,
-	user.Telegram,
-).Scan(&id)
+	err := db.QueryRow(
+		query,
+		req.Username,
+		telegramUser.ID,
+	).Scan(&id)
 
 	if err != nil {
 
-		if pqErr, ok := err.(*pq.Error); ok {
-
-			if pqErr.Code == "23505" {
-
-				return c.Status(400).JSON(fiber.Map{
-					"error": "username already exists",
-				})
-			}
-		}
-
-		log.Println(err)
+		log.Println("USER INSERT ERROR:", err)
 
 		return c.Status(500).JSON(fiber.Map{
 			"error": "user creation failed",
 		})
+
 	}
 
 	return c.JSON(fiber.Map{
