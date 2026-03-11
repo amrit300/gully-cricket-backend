@@ -1,5 +1,6 @@
 package main
 
+import "github.com/gofiber/fiber/v2/middleware/cors"
 import (
 	"context"
 	"database/sql"
@@ -101,20 +102,24 @@ log.Println("DATABASE_URL:", databaseURL)
 	// ---------------------
 
 	app := fiber.New(fiber.Config{
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
+	ErrorHandler: func(c *fiber.Ctx, err error) error {
 
-			log.Println("ERROR:", err)
+		log.Println("SERVER ERROR:", err)
 
-			return c.Status(500).JSON(fiber.Map{
-				"error": "internal server error",
-			})
-		},
-	})
-	app.Use(func(c *fiber.Ctx) error {
-	c.Set("Access-Control-Allow-Origin", "*")
-	c.Set("Access-Control-Allow-Headers", "Content-Type")
-	c.Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-	return c.Next()
+		return c.Status(500).JSON(fiber.Map{
+			"error": "internal server error",
+		})
+	},
+})
+
+app.Use(cors.New(cors.Config{
+	AllowOrigins: "*",
+	AllowHeaders: "Origin, Content-Type, Accept",
+	AllowMethods: "GET,POST,OPTIONS",
+}))
+
+app.Options("/*", func(c *fiber.Ctx) error {
+	return c.SendStatus(200)
 })
 
 	// ---------------------
