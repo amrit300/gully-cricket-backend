@@ -10,22 +10,17 @@ import (
 )
 
 /*
-Verify Telegram WebApp initData
-
-Telegram sends a signed payload to the Mini App.
-This function verifies that signature.
+Verify Telegram WebApp initData signature
 */
 
 func verifyTelegram(initData string, botToken string) bool {
 
 	values, err := url.ParseQuery(initData)
-
 	if err != nil {
 		return false
 	}
 
 	hash := values.Get("hash")
-
 	values.Del("hash")
 
 	var data []string
@@ -38,13 +33,23 @@ func verifyTelegram(initData string, botToken string) bool {
 
 	dataCheckString := strings.Join(data, "\n")
 
-	secret := sha256.Sum256([]byte(botToken))
+	/*
+	Generate Telegram secret key
+	secret = HMAC_SHA256("WebAppData", bot_token)
+	*/
 
-	h := hmac.New(sha256.New, secret[:])
+	secretKeyMac := hmac.New(sha256.New, []byte("WebAppData"))
+	secretKeyMac.Write([]byte(botToken))
+	secretKey := secretKeyMac.Sum(nil)
 
-	h.Write([]byte(dataCheckString))
+	/*
+	Compute final hash
+	*/
 
-	calculatedHash := hex.EncodeToString(h.Sum(nil))
+	mac := hmac.New(sha256.New, secretKey)
+	mac.Write([]byte(dataCheckString))
+
+	calculatedHash := hex.EncodeToString(mac.Sum(nil))
 
 	return calculatedHash == hash
 }
