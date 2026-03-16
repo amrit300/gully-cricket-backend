@@ -1,5 +1,4 @@
 package main
-
 import (
 	"crypto/hmac"
 	"crypto/sha256"
