@@ -306,18 +306,31 @@ func createUser(c *fiber.Ctx) error {
 
 	userJSON := values.Get("user")
 
-	var telegramUser struct {
-		ID int `json:"id"`
-	}
+	userJSON := values.Get("user")
 
-	if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+if userJSON == "" {
 
-		log.Println("USER JSON PARSE ERROR:", err)
+	log.Println("USER FIELD MISSING IN INIT DATA")
 
-		return c.Status(400).JSON(fiber.Map{
-			"error": "invalid telegram user",
-		})
-	}
+	return c.Status(400).JSON(fiber.Map{
+		"error": "telegram user missing",
+	})
+}
+
+var telegramUser struct {
+	ID        int    `json:"id"`
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
+}
+
+if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+
+	log.Println("USER JSON PARSE ERROR:", err)
+
+	return c.Status(400).JSON(fiber.Map{
+		"error": "invalid telegram user",
+	})
+}
 
 	log.Println("TELEGRAM USER ID:", telegramUser.ID)
 
