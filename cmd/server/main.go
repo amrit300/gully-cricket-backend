@@ -259,49 +259,50 @@ func createUser(c *fiber.Ctx) error {
 
 	if err := c.BodyParser(&req); err != nil {
 
+		log.Println("BODY PARSE ERROR:", err)
+
 		return c.Status(400).JSON(fiber.Map{
 			"error": "invalid request",
 		})
-
 	}
 
-	if req.Username == "" {
-
-		return c.Status(400).JSON(fiber.Map{
-			"error": "username required",
-		})
-
-	}
+	log.Println("USERNAME:", req.Username)
+	log.Println("INIT DATA:", req.InitData)
 
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
 	if botToken == "" {
-
-		log.Println("BOT TOKEN NOT SET")
-
+		log.Println("BOT TOKEN MISSING")
 		return c.Status(500).JSON(fiber.Map{
 			"error": "server configuration error",
 		})
-
 	}
 
 	/*
-	Verify Telegram identity
+	Verify Telegram HMAC signature
 	*/
 
 	if !verifyTelegram(req.InitData, botToken) {
 
+		log.Println("TELEGRAM VERIFICATION FAILED")
+
 		return c.Status(403).JSON(fiber.Map{
 			"error": "telegram verification failed",
 		})
-
 	}
 
 	/*
 	Extract Telegram user id
 	*/
 
-	values, _ := url.ParseQuery(req.InitData)
+	values, err := url.ParseQuery(req.InitData)
+
+	if err != nil {
+		log.Println("INIT DATA PARSE ERROR:", err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid telegram payload",
+		})
+	}
 
 	userJSON := values.Get("user")
 
@@ -309,7 +310,16 @@ func createUser(c *fiber.Ctx) error {
 		ID int `json:"id"`
 	}
 
-	json.Unmarshal([]byte(userJSON), &telegramUser)
+	if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+
+		log.Println("USER JSON PARSE ERROR:", err)
+
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid telegram user",
+		})
+	}
+
+	log.Println("TELEGRAM USER ID:", telegramUser.ID)
 
 	query := `
 	INSERT INTO users (username, telegram)
@@ -321,7 +331,7 @@ func createUser(c *fiber.Ctx) error {
 
 	var id int
 
-	err := db.QueryRow(
+	err = db.QueryRow(
 		query,
 		req.Username,
 		telegramUser.ID,
@@ -336,6 +346,8 @@ func createUser(c *fiber.Ctx) error {
 		})
 
 	}
+
+	log.Println("USER CREATED:", id)
 
 	return c.JSON(fiber.Map{
 		"user_id": id,
