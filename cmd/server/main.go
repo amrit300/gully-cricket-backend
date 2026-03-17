@@ -350,7 +350,7 @@ if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
 
 	if err != nil {
 
-		log.Println("USER INSERT ERROR:", err)
+		log.Printf("USER INSERT ERROR: %+v\n", err)
 
 		return c.Status(500).JSON(fiber.Map{
 			"error": "user creation failed",
