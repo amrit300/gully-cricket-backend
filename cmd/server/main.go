@@ -341,7 +341,6 @@ if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
 	`
 
 	var id int
-var id int
 
 err = db.QueryRow(
 	query,
