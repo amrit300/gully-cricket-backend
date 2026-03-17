@@ -341,23 +341,24 @@ if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
 	`
 
 	var id int
+var id int
 
-	err = db.QueryRow(
-		query,
-		req.Username,
-		telegramUser.ID,
-	).Scan(&id)
+err = db.QueryRow(
+	query,
+	req.Username,
+	telegramUser.ID,
+).Scan(&id)
 
-	if err != nil {
+if err != nil {
 
-		log.Printf("USER INSERT ERROR: %+v\n", err)
+	log.Printf("USER INSERT ERROR: %+v\n", err)
 
-		return c.Status(500).JSON(fiber.Map{
-			"error": "user creation failed",
-		})
+	// 🔥 RETURN REAL ERROR TO FRONTEND
+	return c.Status(500).JSON(fiber.Map{
+		"error": err.Error(),
+	})
 
-	}
-
+}
 	log.Println("USER CREATED:", id)
 
 	return c.JSON(fiber.Map{
