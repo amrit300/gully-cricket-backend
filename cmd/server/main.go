@@ -306,8 +306,6 @@ func createUser(c *fiber.Ctx) error {
 
 	userJSON := values.Get("user")
 
-	userJSON := values.Get("user")
-
 if userJSON == "" {
 
 	log.Println("USER FIELD MISSING IN INIT DATA")
