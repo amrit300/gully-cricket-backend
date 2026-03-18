@@ -4,6 +4,8 @@ import (
 	"log"
 	"sync"
 	"time"
+	"os"
+	"fmt"
 )
 
 type Match struct {
@@ -19,35 +21,58 @@ var matchCache struct {
 	Timestamp time.Time
 	Mutex     sync.Mutex
 }
+func GetMatchesFromAPI() ([]Match, error) {
 
-func GetMatchesData() ([]Match, error) {
+	apiKey := os.Getenv("ENTITY_API_KEY")
 
-	matchCache.Mutex.Lock()
-	defer matchCache.Mutex.Unlock()
-
-	// CACHE VALIDITY → 60 sec
-	if time.Since(matchCache.Timestamp) < 60*time.Second && len(matchCache.Data) > 0 {
-		log.Println("Serving matches from cache")
-		return matchCache.Data, nil
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing ENTITY_API_KEY")
 	}
 
-	// 1️⃣ TRY API
-	data, err := GetMatchesFromAPI()
+	url := fmt.Sprintf(
+		"https://rest.entitysport.com/v2/matches/?token=%s&status=1",
+		apiKey,
+	)
 
-	if err != nil || len(data) == 0 {
-		log.Println("API failed → fallback to scraper")
+	client := &http.Client{Timeout: 5 * time.Second}
 
-		// 2️⃣ FALLBACK SCRAPER
-		data, err = GetMatchesFromScraper()
+	res, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
 
-		if err != nil {
-			return nil, err
-		}
+	var raw map[string]interface{}
+
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, err
 	}
 
-	// 3️⃣ SAVE CACHE
-	matchCache.Data = data
-	matchCache.Timestamp = time.Now()
+	response, ok := raw["response"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format")
+	}
 
-	return data, nil
+	var matches []Match
+
+	for i, m := range response {
+
+		item := m.(map[string]interface{})
+
+		teama := item["teama"].(map[string]interface{})
+		teamb := item["teamb"].(map[string]interface{})
+
+		matches = append(matches, Match{
+			ID:          i + 1,
+			TeamA:       toString(teama["name"]),
+			TeamB:       toString(teamb["name"]),
+			Venue:       toString(item["venue"]),
+			AvgScore:    160,
+			SpinAssist:  40,
+			PaceAssist:  60,
+			StartTime:   toString(item["date_start"]),
+		})
+	}
+
+	return matches, nil
 }
