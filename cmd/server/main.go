@@ -1,5 +1,8 @@
 package main
 
+import (
+	"gully-cricket/internal"
+)
 import "github.com/gofiber/fiber/v2/middleware/cors"
 import (
 	"database/sql"
