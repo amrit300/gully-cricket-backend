@@ -117,7 +117,10 @@ func fetchFromEntityAPI() ([]Match, error) {
 		}
 
 		now := time.Now().UTC()
-		maxTime := now.Add(7 * 24 * time.Hour)
+		_ = now
+		
+
+		//maxTime := now.Add(7 * 24 * time.Hour)
 
 		// DEBUG (safe usage)
 		fmt.Println("MATCH:", matchTime, "NOW:", now)
