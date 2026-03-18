@@ -166,13 +166,10 @@ func fetchFromCricAPI() ([]Match, error) {
 
 	data, ok := raw["data"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("invalid cricapi response")
+		return nil, fmt.Errorf("invalid response")
 	}
 
 	var matches []Match
-
-	now := time.Now()
-	maxTime := now.Add(7 * 24 * time.Hour)
 
 	for i, m := range data {
 
@@ -183,19 +180,6 @@ func fetchFromCricAPI() ([]Match, error) {
 			continue
 		}
 
-		matchTimeStr := safeString(item["dateTimeGMT"])
-
-		matchTime, err := time.Parse(time.RFC3339, matchTimeStr)
-		if err != nil {
-			continue
-		}
-
-		// TEMP DEBUG — disable filtering
-
-		//if matchTime.Before(now) || matchTime.After(maxTime) {
-			//continue
-		// }
-
 		matches = append(matches, Match{
 			ID:         i + 1000,
 			TeamA:      safeString(teams[0]),
@@ -204,7 +188,7 @@ func fetchFromCricAPI() ([]Match, error) {
 			AvgScore:   150,
 			SpinAssist: 50,
 			PaceAssist: 50,
-			StartTime:  matchTimeStr,
+			StartTime:  safeString(item["dateTimeGMT"]),
 			Status:     "secondary",
 		})
 	}
