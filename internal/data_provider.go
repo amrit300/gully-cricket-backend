@@ -30,7 +30,7 @@ type Match struct {
 
 func GetMatches() ([]Match, error) {
 
-	// PRIMARY
+	// PRIMARY → EntitySports
 	matches, err := fetchFromEntityAPI()
 	if err == nil && len(matches) > 0 {
 		return matches, nil
@@ -38,15 +38,14 @@ func GetMatches() ([]Match, error) {
 
 	fmt.Println("⚠️ Entity API failed:", err)
 
-	// SECONDARY
+	// SECONDARY → CricAPI
 	matches, err = fetchFromCricAPI()
 	if err == nil && len(matches) > 0 {
 		return matches, nil
 	}
 
-	fmt.Println("❌ Secondary API also failed:", err)
+	fmt.Println("❌ All sources failed")
 
-	// FINAL: return empty (NO FAKE DATA)
 	return []Match{}, nil
 }
 
@@ -57,6 +56,9 @@ func GetMatches() ([]Match, error) {
 func fetchFromEntityAPI() ([]Match, error) {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing ENTITY_API_KEY")
+	}
 
 	url := fmt.Sprintf(
 		"https://rest.entitysport.com/v2/matches/?token=%s&per_page=50",
@@ -77,70 +79,80 @@ func fetchFromEntityAPI() ([]Match, error) {
 		return nil, err
 	}
 
-	response := raw["response"].(map[string]interface{})
-	items := response["items"].([]interface{})
+	response, ok := raw["response"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format")
+	}
+
+	items, ok := response["items"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no items found")
+	}
 
 	var matches []Match
 
-	now := time.Now()
-	maxTime := now.Add(7 * 24 * time.Hour)
-
 	for i, m := range items {
-for i, m := range items {
 
-	item := m.(map[string]interface{})
+		item, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
 
-	status := safeString(item["status"])
+		status := safeString(item["status"])
 
-	if status != "1" && status != "2" {
-		continue
+		// only upcoming or live
+		if status != "1" && status != "2" {
+			continue
+		}
+
+		matchTimeStr := safeString(item["date_start"])
+
+		// try multiple formats
+		matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
+		if err != nil {
+			matchTime, err = time.Parse(time.RFC3339, matchTimeStr)
+			if err != nil {
+				continue
+			}
+		}
+
+		now := time.Now().UTC()
+		maxTime := now.Add(7 * 24 * time.Hour)
+
+		// DEBUG (safe usage)
+		fmt.Println("MATCH:", matchTime, "NOW:", now)
+
+		// TEMP: disable strict filtering for now
+		// if matchTime.Before(now) || matchTime.After(maxTime) {
+		//     continue
+		// }
+
+		teama := safeMap(item["teama"])
+		teamb := safeMap(item["teamb"])
+
+		matches = append(matches, Match{
+			ID:         i + 1,
+			TeamA:      safeString(teama["name"]),
+			TeamB:      safeString(teamb["name"]),
+			Venue:      safeString(item["venue"]),
+			AvgScore:   160,
+			SpinAssist: 40,
+			PaceAssist: 60,
+			StartTime:  matchTimeStr,
+			Status:     status,
+		})
 	}
-
-	matchTimeStr := safeString(item["date_start"])
-
-	matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
-	if err != nil {
-		continue
-	}
-
-	now := time.Now().UTC()
-	maxTime := now.Add(7 * 24 * time.Hour)
-
-	// ✅ DEBUG LOG (prevents unused variable error)
-	fmt.Println("MATCH TIME:", matchTime, "NOW:", now, "MAX:", maxTime)
-
-	// ❌ TEMP DISABLED FILTER
-	// if matchTime.Before(now) || matchTime.After(maxTime) {
-	//     continue
-	// }
-
-	teama := safeMap(item["teama"])
-	teamb := safeMap(item["teamb"])
-
-	matches = append(matches, Match{
-		ID:         i + 1,
-		TeamA:      safeString(teama["name"]),
-		TeamB:      safeString(teamb["name"]),
-		Venue:      safeString(item["venue"]),
-		AvgScore:   160,
-		SpinAssist: 40,
-		PaceAssist: 60,
-		StartTime:  matchTimeStr,
-		Status:     status,
-	})
-}
 
 	return matches, nil
 }
 
 /* =========================
-   SECONDARY API (CRICAPI)
+   CRICAPI (SECONDARY)
 ========================= */
 
 func fetchFromCricAPI() ([]Match, error) {
 
 	apiKey := os.Getenv("CRIC_API_KEY")
-
 	if apiKey == "" {
 		return nil, fmt.Errorf("missing CRIC_API_KEY")
 	}
@@ -166,14 +178,17 @@ func fetchFromCricAPI() ([]Match, error) {
 
 	data, ok := raw["data"].([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("invalid response")
+		return nil, fmt.Errorf("invalid cricapi response")
 	}
 
 	var matches []Match
 
 	for i, m := range data {
 
-		item := m.(map[string]interface{})
+		item, ok := m.(map[string]interface{})
+		if !ok {
+			continue
+		}
 
 		teams, ok := item["teams"].([]interface{})
 		if !ok || len(teams) < 2 {
