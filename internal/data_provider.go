@@ -86,41 +86,49 @@ func fetchFromEntityAPI() ([]Match, error) {
 	maxTime := now.Add(7 * 24 * time.Hour)
 
 	for i, m := range items {
+for i, m := range items {
 
-		item := m.(map[string]interface{})
+	item := m.(map[string]interface{})
 
-		status := safeString(item["status"])
+	status := safeString(item["status"])
 
-		if status != "1" && status != "2" {
-			continue
-		}
-
-		matchTimeStr := safeString(item["date_start"])
-
-		matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
-		if err != nil {
-			continue
-		}
-
-		if matchTime.Before(now) || matchTime.After(maxTime) {
-			continue
-		}
-
-		teama := safeMap(item["teama"])
-		teamb := safeMap(item["teamb"])
-
-		matches = append(matches, Match{
-			ID:         i + 1,
-			TeamA:      safeString(teama["name"]),
-			TeamB:      safeString(teamb["name"]),
-			Venue:      safeString(item["venue"]),
-			AvgScore:   160,
-			SpinAssist: 40,
-			PaceAssist: 60,
-			StartTime:  matchTimeStr,
-			Status:     status,
-		})
+	if status != "1" && status != "2" {
+		continue
 	}
+
+	matchTimeStr := safeString(item["date_start"])
+
+	matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
+	if err != nil {
+		continue
+	}
+
+	now := time.Now().UTC()
+	maxTime := now.Add(7 * 24 * time.Hour)
+
+	// ✅ DEBUG LOG (prevents unused variable error)
+	fmt.Println("MATCH TIME:", matchTime, "NOW:", now, "MAX:", maxTime)
+
+	// ❌ TEMP DISABLED FILTER
+	// if matchTime.Before(now) || matchTime.After(maxTime) {
+	//     continue
+	// }
+
+	teama := safeMap(item["teama"])
+	teamb := safeMap(item["teamb"])
+
+	matches = append(matches, Match{
+		ID:         i + 1,
+		TeamA:      safeString(teama["name"]),
+		TeamB:      safeString(teamb["name"]),
+		Venue:      safeString(item["venue"]),
+		AvgScore:   160,
+		SpinAssist: 40,
+		PaceAssist: 60,
+		StartTime:  matchTimeStr,
+		Status:     status,
+	})
+}
 
 	return matches, nil
 }
