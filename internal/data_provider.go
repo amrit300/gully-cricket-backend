@@ -50,9 +50,9 @@ func GetMatchesFromAPI() ([]Match, error) {
 	}
 
 	url := fmt.Sprintf(
-		"https://rest.entitysport.com/v2/matches/?token=%s&status=1",
-		apiKey,
-	)
+	"https://rest.entitysport.com/v2/matches/?token=%s&status=1,2",
+	apiKey,
+)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
