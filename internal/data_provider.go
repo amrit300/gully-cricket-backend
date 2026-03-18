@@ -182,9 +182,11 @@ func fetchFromCricAPI() ([]Match, error) {
 			continue
 		}
 
-		if matchTime.Before(now) || matchTime.After(maxTime) {
-			continue
-		}
+		// TEMP DEBUG — disable filtering
+
+		//if matchTime.Before(now) || matchTime.After(maxTime) {
+			//continue
+		// }
 
 		matches = append(matches, Match{
 			ID:         i + 1000,
