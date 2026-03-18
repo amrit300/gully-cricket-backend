@@ -117,18 +117,14 @@ func fetchFromEntityAPI() ([]Match, error) {
 		}
 
 		now := time.Now().UTC()
-		_ = now
+
+pastLimit := now.Add(-3 * time.Hour)
+futureLimit := now.Add(7 * 24 * time.Hour)
+
+if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
+	continue
+}
 		
-
-		//maxTime := now.Add(7 * 24 * time.Hour)
-
-		// DEBUG (safe usage)
-		fmt.Println("MATCH:", matchTime, "NOW:", now)
-
-		// TEMP: disable strict filtering for now
-		// if matchTime.Before(now) || matchTime.After(maxTime) {
-		//     continue
-		// }
 
 		teama := safeMap(item["teama"])
 		teamb := safeMap(item["teamb"])
