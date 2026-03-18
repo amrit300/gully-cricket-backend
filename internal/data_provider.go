@@ -2,7 +2,6 @@ package internal
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"net/http"
 	"os"
@@ -31,16 +30,24 @@ type Match struct {
 
 func GetMatches() ([]Match, error) {
 
-	// 1️⃣ Primary: API
+	// PRIMARY
 	matches, err := fetchFromEntityAPI()
 	if err == nil && len(matches) > 0 {
 		return matches, nil
 	}
 
-	fmt.Println("⚠️ API failed, switching to scraper:", err)
+	fmt.Println("⚠️ Entity API failed:", err)
 
-	// 2️⃣ Fallback: Scraper
-	return fetchFromRSS()
+	// SECONDARY
+	matches, err = fetchFromCricAPI()
+	if err == nil && len(matches) > 0 {
+		return matches, nil
+	}
+
+	fmt.Println("❌ Secondary API also failed:", err)
+
+	// FINAL: return empty (NO FAKE DATA)
+	return []Match{}, nil
 }
 
 /* =========================
@@ -50,10 +57,6 @@ func GetMatches() ([]Match, error) {
 func fetchFromEntityAPI() ([]Match, error) {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
-
-	if apiKey == "" {
-		return nil, fmt.Errorf("missing API key")
-	}
 
 	url := fmt.Sprintf(
 		"https://rest.entitysport.com/v2/matches/?token=%s&per_page=50",
@@ -88,7 +91,6 @@ func fetchFromEntityAPI() ([]Match, error) {
 
 		status := safeString(item["status"])
 
-		// Only LIVE + UPCOMING
 		if status != "1" && status != "2" {
 			continue
 		}
@@ -124,34 +126,39 @@ func fetchFromEntityAPI() ([]Match, error) {
 }
 
 /* =========================
-   RSS SCRAPER (WORKING)
+   SECONDARY API (CRICAPI)
 ========================= */
 
-type RSS struct {
-	Channel struct {
-		Items []struct {
-			Title string `xml:"title"`
-			PubDate string `xml:"pubDate"`
-		} `xml:"item"`
-	} `xml:"channel"`
-}
+func fetchFromCricAPI() ([]Match, error) {
 
-func fetchFromRSS() ([]Match, error) {
+	apiKey := os.Getenv("CRIC_API_KEY")
 
-	url := "https://www.espncricinfo.com/rss/content/story/feeds/0.xml"
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing CRIC_API_KEY")
+	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	url := fmt.Sprintf(
+		"https://api.cricapi.com/v1/currentMatches?apikey=%s",
+		apiKey,
+	)
+
+	client := &http.Client{Timeout: 6 * time.Second}
 
 	res, err := client.Get(url)
 	if err != nil {
-		return fallbackMatches(), nil
+		return nil, err
 	}
 	defer res.Body.Close()
 
-	var rss RSS
+	var raw map[string]interface{}
 
-	if err := xml.NewDecoder(res.Body).Decode(&rss); err != nil {
-		return fallbackMatches(), nil
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	data, ok := raw["data"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid cricapi response")
 	}
 
 	var matches []Match
@@ -159,54 +166,40 @@ func fetchFromRSS() ([]Match, error) {
 	now := time.Now()
 	maxTime := now.Add(7 * 24 * time.Hour)
 
-	for i, item := range rss.Channel.Items {
+	for i, m := range data {
 
-		// RSS is not perfect → we simulate match extraction
-		matchTime := now.Add(time.Duration(i) * time.Hour)
+		item := m.(map[string]interface{})
 
-		if matchTime.After(maxTime) {
-			break
+		teams, ok := item["teams"].([]interface{})
+		if !ok || len(teams) < 2 {
+			continue
+		}
+
+		matchTimeStr := safeString(item["dateTimeGMT"])
+
+		matchTime, err := time.Parse(time.RFC3339, matchTimeStr)
+		if err != nil {
+			continue
+		}
+
+		if matchTime.Before(now) || matchTime.After(maxTime) {
+			continue
 		}
 
 		matches = append(matches, Match{
-			ID:         1000 + i,
-			TeamA:      "Live Team",
-			TeamB:      "Opponent",
-			Venue:      "RSS Feed",
+			ID:         i + 1000,
+			TeamA:      safeString(teams[0]),
+			TeamB:      safeString(teams[1]),
+			Venue:      safeString(item["venue"]),
 			AvgScore:   150,
 			SpinAssist: 50,
 			PaceAssist: 50,
-			StartTime:  matchTime.Format(time.RFC3339),
-			Status:     "rss",
+			StartTime:  matchTimeStr,
+			Status:     "secondary",
 		})
 	}
 
-	if len(matches) == 0 {
-		return fallbackMatches(), nil
-	}
-
 	return matches, nil
-}
-
-/* =========================
-   FINAL FALLBACK
-========================= */
-
-func fallbackMatches() []Match {
-
-	return []Match{
-		{
-			ID:         999,
-			TeamA:      "Fallback XI",
-			TeamB:      "Fallback XI",
-			Venue:      "Backup Stadium",
-			AvgScore:   150,
-			SpinAssist: 50,
-			PaceAssist: 50,
-			StartTime:  time.Now().Format(time.RFC3339),
-			Status:     "fallback",
-		},
-	}
 }
 
 /* =========================
