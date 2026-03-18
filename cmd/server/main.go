@@ -135,7 +135,18 @@ app.Options("/*", func(c *fiber.Ctx) error {
 		return c.SendString("Gully Cricket Backend Running")
 	})
 
-	app.Get("/matches", getMatches)
+	app.Get("/matches", func(c *fiber.Ctx) error {
+
+	matches, err := internal.GetMatches()
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(matches)
+})
 
 	app.Post("/user/register", createUser)
 
@@ -171,32 +182,6 @@ app.Options("/*", func(c *fiber.Ctx) error {
 	log.Fatal(app.Listen(":" + port))
 }
 
-// =========================
-// MATCHES
-// =========================
-
-func getMatches(c *fiber.Ctx) error {
-
-	type Match struct {
-		ID        int    `json:"id"`
-		Team1     string `json:"team1"`
-		Team2     string `json:"team2"`
-		MatchTime string `json:"match_time"`
-		Status    string `json:"status"`
-	}
-
-	matches := []Match{
-		{
-			ID:        1,
-			Team1:     "India",
-			Team2:     "Australia",
-			MatchTime: "2026-03-05T19:30:00Z",
-			Status:    "upcoming",
-		},
-	}
-
-	return c.JSON(matches)
-}
 func getContests(c *fiber.Ctx) error {
 
 	matchID, err := strconv.Atoi(c.Params("match_id"))
