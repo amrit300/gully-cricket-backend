@@ -551,111 +551,134 @@ func checkDailyTeamLimit(userID int) error {
 func joinContest(c *fiber.Ctx) error {
 
 	type Request struct {
-		UserID int `json:"user_id"`
-		TeamID int `json:"team_id"`
+		UserID    int `json:"user_id"`
+		TeamID    int `json:"team_id"`
 		ContestID int `json:"contest_id"`
 	}
 
 	var req Request
 
-if err := c.BodyParser(&req); err != nil {
-	return c.Status(400).JSON(fiber.Map{
-		"error": "invalid request",
-	})
-}
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "invalid request",
+		})
+	}
 
-tx, err := db.Begin()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-if err != nil {
-	return err
-}
+	/* =========================
+	   DUPLICATE CHECK
+	========================= */
 
-defer tx.Rollback()
+	var exists int
+	err = tx.QueryRow(`
+	SELECT 1 FROM contest_entries
+	WHERE contest_id=$1 AND team_id=$2
+	`, req.ContestID, req.TeamID).Scan(&exists)
 
-var filled int
-var total int
+	if err == nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "already joined",
+		})
+	}
 
-err = tx.QueryRow(`
-SELECT filled_spots, total_spots
-FROM contests
-WHERE id=$1
-FOR UPDATE
-`, req.ContestID).Scan(&filled, &total)
+	/* =========================
+	   LOCK CONTEST
+	========================= */
 
-if err != nil {
-	log.Println("CONTEST QUERY ERROR:", err)
+	var filled, total int
 
-	return c.Status(500).JSON(fiber.Map{
-		"error": "contest query failed",
-	})
-}
+	err = tx.QueryRow(`
+	SELECT filled_spots, total_spots
+	FROM contests
+	WHERE id=$1
+	FOR UPDATE
+	`, req.ContestID).Scan(&filled, &total)
 
-if filled >= total {
-
-	return c.Status(400).JSON(fiber.Map{
-		"error": "contest full",
-	})
-}
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "contest query failed",
+		})
+	}
 
 	if filled >= total {
-
 		return c.Status(400).JSON(fiber.Map{
 			"error": "contest full",
 		})
 	}
 
-_, err = tx.Exec(`
-INSERT INTO contest_entries (contest_id,team_id,user_id)
-VALUES ($1,$2,$3)
-`, req.ContestID, req.TeamID, req.UserID)
+	/* =========================
+	   TEAM OWNERSHIP CHECK
+	========================= */
 
-if err != nil {
-	tx.Rollback()
-	return err
-}
+	var matchID, ownerID int
 
-var matchID int
+	err = tx.QueryRow(`
+	SELECT match_id, user_id FROM teams WHERE id=$1
+	`, req.TeamID).Scan(&matchID, &ownerID)
 
-err = tx.QueryRow(`
-SELECT match_id FROM teams WHERE id=$1
-`, req.TeamID).Scan(&matchID)
+	if err != nil {
+		return err
+	}
 
-if err != nil {
-	tx.Rollback()
-	return err
-}
+	if ownerID != req.UserID {
+		return c.Status(403).JSON(fiber.Map{
+			"error": "unauthorized team access",
+		})
+	}
 
-_, err = tx.Exec(`
-INSERT INTO leaderboard (match_id, team_id, points, rank)
-VALUES ($1,$2,0,0)
-`, matchID, req.TeamID)
+	/* =========================
+	   INSERT ENTRY
+	========================= */
 
-if err != nil {
-	tx.Rollback()
-	return err
-}
+	_, err = tx.Exec(`
+	INSERT INTO contest_entries (contest_id,team_id,user_id)
+	VALUES ($1,$2,$3)
+	`, req.ContestID, req.TeamID, req.UserID)
 
-_, err = tx.Exec(`
-UPDATE contests
-SET filled_spots = filled_spots + 1
-WHERE id=$1
-`, req.ContestID)
+	if err != nil {
+		return err
+	}
 
-if err != nil {
-	tx.Rollback()
-	return err
-}
+	/* =========================
+	   INSERT LEADERBOARD
+	========================= */
 
-err = tx.Commit()
+	_, err = tx.Exec(`
+	INSERT INTO leaderboard (contest_id, match_id, team_id, points, rank)
+	VALUES ($1,$2,$3,0,0)
+	`, req.ContestID, matchID, req.TeamID)
 
-if err != nil {
-	return err
-}
+	if err != nil {
+		return err
+	}
 
-return c.JSON(fiber.Map{
-	"status": "contest joined",
-})
+	/* =========================
+	   UPDATE SPOTS
+	========================= */
 
+	_, err = tx.Exec(`
+	UPDATE contests
+	SET filled_spots = filled_spots + 1
+	WHERE id=$1
+	`, req.ContestID)
+
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "contest joined",
+	})
 }
 func validateTeam(playerIDs []int) error {
 
@@ -889,8 +912,15 @@ func updateTeamPoints(c *fiber.Ctx) error {
 	}
 
 	rows, err := db.Query(`
-	SELECT t.id,
-	COALESCE(SUM(p.fantasy_points),0) as total
+	SELECT 
+	  t.id,
+	  COALESCE(SUM(
+	    CASE 
+	      WHEN tp.player_id = t.captain_player_id THEN p.fantasy_points * 2
+	      WHEN tp.player_id = t.vice_captain_player_id THEN p.fantasy_points * 1.5
+	      ELSE p.fantasy_points
+	    END
+	  ),0) as total
 	FROM teams t
 	JOIN team_players tp ON tp.team_id = t.id
 	JOIN players p ON p.id = tp.player_id
@@ -910,7 +940,6 @@ func updateTeamPoints(c *fiber.Ctx) error {
 		var points float64
 
 		err := rows.Scan(&teamID, &points)
-
 		if err != nil {
 			return err
 		}
@@ -935,10 +964,10 @@ func leaderboardWorker() {
 
 	for {
 
-		time.Sleep(30 * time.Second)
+		time.Sleep(10 * time.Second)
 
 		rows, err := db.Query(`
-		SELECT DISTINCT match_id
+		SELECT DISTINCT contest_id, match_id
 		FROM leaderboard
 		`)
 
@@ -949,44 +978,84 @@ func leaderboardWorker() {
 
 		for rows.Next() {
 
+			var contestID int
 			var matchID int
 
-			rows.Scan(&matchID)
+			if err := rows.Scan(&contestID, &matchID); err != nil {
+				log.Println("scan error:", err)
+				continue
+			}
 
-			// update team points
+			/* =========================
+			   STEP 1 → UPDATE TEAM POINTS (MATCH LEVEL)
+			========================= */
+
 			_, err = db.Exec(`
 			UPDATE teams t
 			SET total_points = sub.points
 			FROM (
-				SELECT tp.team_id,
-				SUM(p.fantasy_points) as points
-				FROM team_players tp
-				JOIN players p ON p.id=tp.player_id
-				GROUP BY tp.team_id
+				SELECT 
+				  t2.id as team_id,
+				  COALESCE(SUM(
+				    CASE 
+				      WHEN tp.player_id = t2.captain_player_id THEN p.fantasy_points * 2
+				      WHEN tp.player_id = t2.vice_captain_player_id THEN p.fantasy_points * 1.5
+				      ELSE p.fantasy_points
+				    END
+				  ),0) as points
+				FROM teams t2
+				JOIN team_players tp ON tp.team_id = t2.id
+				JOIN players p ON p.id = tp.player_id
+				WHERE t2.match_id = $1
+				GROUP BY t2.id
 			) sub
-			WHERE t.id=sub.team_id
-			AND t.match_id=$1
+			WHERE t.id = sub.team_id
+			AND t.match_id = $1
 			`, matchID)
 
 			if err != nil {
 				log.Println("team update error:", err)
+				continue
 			}
 
-			// update leaderboard ranks
+			/* =========================
+			   STEP 2 → SYNC LEADERBOARD (CONTEST LEVEL)
+			========================= */
+
+			_, err = db.Exec(`
+			UPDATE leaderboard l
+			SET points = t.total_points
+			FROM teams t
+			WHERE l.team_id = t.id
+			AND l.contest_id = $1
+			`, contestID)
+
+			if err != nil {
+				log.Println("leaderboard sync error:", err)
+				continue
+			}
+
+			/* =========================
+			   STEP 3 → RANK PER CONTEST
+			========================= */
+
 			_, err = db.Exec(`
 			UPDATE leaderboard l
 			SET rank = r.rank
 			FROM (
-				SELECT team_id,
-				RANK() OVER (ORDER BY points DESC) as rank
+				SELECT 
+				  team_id,
+				  RANK() OVER (ORDER BY points DESC) as rank
 				FROM leaderboard
-				WHERE match_id=$1
+				WHERE contest_id = $1
 			) r
-			WHERE l.team_id=r.team_id
-			`, matchID)
+			WHERE l.team_id = r.team_id
+			AND l.contest_id = $1
+			`, contestID)
 
 			if err != nil {
-				log.Println("leaderboard error:", err)
+				log.Println("leaderboard rank error:", err)
+				continue
 			}
 		}
 
