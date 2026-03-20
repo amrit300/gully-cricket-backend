@@ -165,6 +165,23 @@ app.Options("/*", func(c *fiber.Ctx) error {
 
 	return c.JSON(result)
 })
+	app.Get("/sync-players/:match_id/:external_id", func(c *fiber.Ctx) error {
+
+	matchID, _ := strconv.Atoi(c.Params("match_id"))
+	externalID := c.Params("external_id")
+
+	err := syncPlayers(matchID, externalID)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "players synced",
+	})
+})
 
 	app.Post("/user/register", createUser)
 
@@ -1076,4 +1093,45 @@ func leaderboardWorker() {
 
 		rows.Close()
 	}
+}
+func syncPlayers(matchID int, externalMatchID string) error {
+
+	players, err := internal.FetchPlayersFromCricAPI(externalMatchID)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range players {
+
+		name := fmt.Sprintf("%v", p["name"])
+
+		role := "BAT" // fallback
+
+		if r, ok := p["role"]; ok {
+			role = fmt.Sprintf("%v", r)
+		}
+
+		team := "Unknown"
+
+		if t, ok := p["team"]; ok {
+			team = fmt.Sprintf("%v", t)
+		}
+
+		_, err := db.Exec(`
+		INSERT INTO players (name, team, role, credit, match_id)
+		VALUES ($1,$2,$3,8.5,$4)
+		ON CONFLICT DO NOTHING
+		`,
+			name,
+			team,
+			role,
+			matchID,
+		)
+
+		if err != nil {
+			log.Println("PLAYER INSERT ERROR:", err)
+		}
+	}
+
+	return nil
 }
