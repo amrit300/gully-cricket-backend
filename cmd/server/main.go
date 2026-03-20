@@ -151,6 +151,20 @@ app.Options("/*", func(c *fiber.Ctx) error {
 
 	return c.JSON(matches)
 })
+	app.Get("/ai/team/:match_id", func(c *fiber.Ctx) error {
+
+	matchID, _ := strconv.Atoi(c.Params("match_id"))
+
+	result, err := ai.GenerateAITeam(db, matchID)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(result)
+})
 
 	app.Post("/user/register", createUser)
 
