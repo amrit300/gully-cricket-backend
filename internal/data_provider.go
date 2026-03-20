@@ -227,3 +227,46 @@ func safeMap(v interface{}) map[string]interface{} {
 	}
 	return map[string]interface{}{}
 }
+func FetchPlayersFromCricAPI(matchID string) ([]map[string]interface{}, error) {
+
+	apiKey := os.Getenv("CRIC_API_KEY")
+
+	url := fmt.Sprintf(
+		"https://api.cricapi.com/v1/match_squad?apikey=%s&id=%s",
+		apiKey,
+		matchID,
+	)
+
+	client := &http.Client{Timeout: 6 * time.Second}
+
+	res, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	var raw map[string]interface{}
+
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	data, ok := raw["data"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid squad data")
+	}
+
+	players, ok := data["players"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no players found")
+	}
+
+	var result []map[string]interface{}
+
+	for _, p := range players {
+		player := p.(map[string]interface{})
+		result = append(result, player)
+	}
+
+	return result, nil
+}
