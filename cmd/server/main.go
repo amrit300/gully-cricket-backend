@@ -3,6 +3,7 @@ package main
 import (
 	"gully-cricket/internal"
 )
+import "gully-cricket/internal/ai"
 import "github.com/gofiber/fiber/v2/middleware/cors"
 import (
 	"database/sql"
