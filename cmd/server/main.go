@@ -113,7 +113,22 @@ func main() {
 	})
 
 	// MATCHES (DB based)
-	app.Get("/matches", handlers.GetMatches(db))
+	app.Get("/sync-matches", func(c *fiber.Ctx) error {
+
+	err := ingestion.SyncMatchesToDB(db)
+
+	if err != nil {
+		fmt.Println("SYNC ERROR:", err)
+
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "matches synced",
+	})
+})
 
 	// PLAYERS
 	app.Get("/players/:match_id", handlers.GetPlayers(db))
