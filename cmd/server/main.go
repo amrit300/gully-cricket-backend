@@ -152,7 +152,7 @@ app.Options("/*", func(c *fiber.Ctx) error {
 
 	app.Get("/matches", func(c *fiber.Ctx) error {
 
-	matches, err := internal.GetMatches()
+	matches, err := internal.GetMatches(db)
 
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
