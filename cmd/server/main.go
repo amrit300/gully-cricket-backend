@@ -240,6 +240,20 @@ app.Options("/*", func(c *fiber.Ctx) error {
 		"status": "players synced",
 	})
 })
+	app.Get("/sync-matches", func(c *fiber.Ctx) error {
+
+	err := internal.SyncMatches(db)
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "matches synced",
+	})
+})
 
 	app.Post("/user/register", createUser)
 
