@@ -226,7 +226,7 @@ func fetchFromCricAPI(db *sql.DB) ([]Match, error) {
 			venue = "Default Stadium"
 		}
 
-		avg, spin, pace := getVenueStats(db, venue)
+		avg, spin, pace := GetVenueStats(db, venue)
 
 		matches = append(matches, Match{
 			ID:         i + 1000,
