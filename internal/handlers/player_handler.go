@@ -2,69 +2,38 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
-	"strconv"
-	"gully-cricket/internal" 
 
 	"github.com/gofiber/fiber/v2"
+	"gully-cricket/internal/providers"
 )
 
-type Player struct {
-	ID     int     `json:"id"`
-	Name   string  `json:"name"`
-	Team   string  `json:"team"`
-	Role   string  `json:"role"`
-	Credit float64 `json:"credit"`
-}
-
-func GetPlayers(db *sql.DB) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-
-		matchID, err := strconv.Atoi(c.Params("match_id"))
-		if err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "invalid match id"})
-		}
-
-		rows, err := db.Query(`
-			SELECT id,name,team,role,credit
-			FROM players
-			WHERE match_id=$1
-			ORDER BY role,credit DESC
-		`, matchID)
-
-		if err != nil {
-			log.Println(err)
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		defer rows.Close()
-
-		var players []Player
-
-		for rows.Next() {
-			var p Player
-			rows.Scan(&p.ID, &p.Name, &p.Team, &p.Role, &p.Credit)
-			players = append(players, p)
-		}
-
-		return c.JSON(players)
-	}
-}
 func SyncPlayers(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		matchID, _ := strconv.Atoi(c.Params("match_id"))
+		matchID := c.Params("match_id")
 		externalID := c.Params("external_id")
 
-		players, err := internal.FetchPlayersFromEntityAPI(externalMatchID)
+		if matchID == "" || externalID == "" {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "match_id and external_id required",
+			})
+		}
+
+		players, err := providers.FetchPlayersFromEntityAPI(externalID)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			log.Println("PLAYER FETCH ERROR:", err)
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
 		}
 
 		for _, p := range players {
 
-			name := fmt.Sprintf("%v", p["title"])
-			role := fmt.Sprintf("%v", p["playing_role"])
-			team := fmt.Sprintf("%v", p["team_name"])
+			name := fmt.Sprintf("%v", p["name"])
+			role := fmt.Sprintf("%v", p["role"])
+			team := fmt.Sprintf("%v", p["team"])
 
 			_, err := db.Exec(`
 				INSERT INTO players (name, team, role, credit, match_id)
@@ -77,13 +46,8 @@ func SyncPlayers(db *sql.DB) fiber.Handler {
 			}
 		}
 
-		return c.JSON(fiber.Map{"status": "players synced"})
+		return c.JSON(fiber.Map{
+			"status": "players synced",
+		})
 	}
-}
-
-func safeString(v interface{}) string {
-	if s, ok := v.(string); ok && s != "" {
-		return s
-	}
-	return "Unknown"
 }
