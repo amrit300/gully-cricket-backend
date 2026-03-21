@@ -1,24 +1,18 @@
-package internal
+package providers
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 )
-
-/*
-FetchPlayersFromEntityAPI
-→ Fetch players for a match
-*/
 
 func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error) {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
 
 	url := fmt.Sprintf(
-		"https://rest.entitysport.com/v2/matches/%s/squad?token=%s",
+		"https://rest.entitysport.com/v2/matches/%s/squads?token=%s",
 		matchID,
 		apiKey,
 	)
@@ -29,24 +23,22 @@ func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error)
 	}
 	defer res.Body.Close()
 
-	body, _ := io.ReadAll(res.Body)
-
 	var raw map[string]interface{}
 
-	if err := json.Unmarshal(body, &raw); err != nil {
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 
 	response := raw["response"].(map[string]interface{})
-	teams := response["squads"].([]interface{})
+	squads := response["squads"].([]interface{})
 
 	var players []map[string]interface{}
 
-	for _, t := range teams {
-		team := t.(map[string]interface{})
-		pList := team["players"].([]interface{})
+	for _, team := range squads {
+		t := team.(map[string]interface{})
+		pl := t["players"].([]interface{})
 
-		for _, p := range pList {
+		for _, p := range pl {
 			players = append(players, p.(map[string]interface{}))
 		}
 	}
