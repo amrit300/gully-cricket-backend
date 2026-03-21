@@ -1,111 +1,60 @@
-func createUser(c *fiber.Ctx) error {
+package handlers
 
-	var req RegisterRequest
+import (
+	"database/sql"
+	"encoding/json"
+	"log"
+	"net/url"
+	"os"
 
-	if err := c.BodyParser(&req); err != nil {
+	"github.com/gofiber/fiber/v2"
+)
 
-		log.Println("BODY PARSE ERROR:", err)
-
-		return c.Status(400).JSON(fiber.Map{
-			"error": "invalid request",
-		})
-	}
-
-	log.Println("USERNAME:", req.Username)
-	log.Println("INIT DATA:", req.InitData)
-
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-
-	if botToken == "" {
-		log.Println("BOT TOKEN MISSING")
-		return c.Status(500).JSON(fiber.Map{
-			"error": "server configuration error",
-		})
-	}
-
-	/*
-	Verify Telegram HMAC signature
-	*/
-
-	if !verifyTelegram(req.InitData, botToken) {
-
-		log.Println("TELEGRAM VERIFICATION FAILED")
-
-		return c.Status(403).JSON(fiber.Map{
-			"error": "telegram verification failed",
-		})
-	}
-
-	/*
-	Extract Telegram user id
-	*/
-
-	values, err := url.ParseQuery(req.InitData)
-
-	if err != nil {
-		log.Println("INIT DATA PARSE ERROR:", err)
-		return c.Status(400).JSON(fiber.Map{
-			"error": "invalid telegram payload",
-		})
-	}
-
-	userJSON := values.Get("user")
-
-if userJSON == "" {
-
-	log.Println("USER FIELD MISSING IN INIT DATA")
-
-	return c.Status(400).JSON(fiber.Map{
-		"error": "telegram user missing",
-	})
+type RegisterRequest struct {
+	Username string `json:"username"`
+	InitData string `json:"initData"`
 }
 
-var telegramUser struct {
-	ID        int    `json:"id"`
-	Username  string `json:"username"`
-	FirstName string `json:"first_name"`
-}
+func CreateUser(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
 
-if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+		var req RegisterRequest
 
-	log.Println("USER JSON PARSE ERROR:", err)
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
+		}
 
-	return c.Status(400).JSON(fiber.Map{
-		"error": "invalid telegram user",
-	})
-}
+		botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 
-	log.Println("TELEGRAM USER ID:", telegramUser.ID)
+		if !verifyTelegram(req.InitData, botToken) {
+			return c.Status(403).JSON(fiber.Map{"error": "telegram verification failed"})
+		}
 
-	query := `
-	INSERT INTO users (username, telegram)
-	VALUES ($1,$2)
-	ON CONFLICT (telegram)
-	DO UPDATE SET username=EXCLUDED.username
-	RETURNING id
-	`
+		values, _ := url.ParseQuery(req.InitData)
 
-	var id int
+		userJSON := values.Get("user")
 
-err = db.QueryRow(
-	query,
-	req.Username,
-	telegramUser.ID,
-).Scan(&id)
+		var telegramUser struct {
+			ID int `json:"id"`
+		}
 
-if err != nil {
+		json.Unmarshal([]byte(userJSON), &telegramUser)
 
-	log.Printf("USER INSERT ERROR: %+v\n", err)
+		var id int
 
-	// 🔥 RETURN REAL ERROR TO FRONTEND
-	return c.Status(500).JSON(fiber.Map{
-		"error": err.Error(),
-	})
+		err := db.QueryRow(`
+			INSERT INTO users (username, telegram)
+			VALUES ($1,$2)
+			ON CONFLICT (telegram)
+			DO UPDATE SET username=EXCLUDED.username
+			RETURNING id
+		`, req.Username, telegramUser.ID).Scan(&id)
 
-}
-	log.Println("USER CREATED:", id)
+		if err != nil {
+			log.Println(err)
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
 
-	return c.JSON(fiber.Map{
-		"user_id": id,
-	})
+		return c.JSON(fiber.Map{"user_id": id})
+	}
 }
