@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"database/sql"
 )
 
 /* =========================
@@ -31,7 +32,7 @@ type Match struct {
 func GetMatches() ([]Match, error) {
 
 	// PRIMARY → EntitySports
-	matches, err := fetchFromEntityAPI()
+	matches, err := fetchFromEntityAPI(db)
 	if err == nil && len(matches) > 0 {
 		return matches, nil
 	}
@@ -39,7 +40,7 @@ func GetMatches() ([]Match, error) {
 	fmt.Println("⚠️ Entity API failed:", err)
 
 	// SECONDARY → CricAPI
-	matches, err = fetchFromCricAPI()
+	matches, err = fetchFromCricAPI(db)
 	if err == nil && len(matches) > 0 {
 		return matches, nil
 	}
@@ -53,7 +54,7 @@ func GetMatches() ([]Match, error) {
    ENTITY API
 ========================= */
 
-func fetchFromEntityAPI() ([]Match, error) {
+func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
 	if apiKey == "" {
@@ -91,6 +92,10 @@ func fetchFromEntityAPI() ([]Match, error) {
 
 	var matches []Match
 
+	now := time.Now().UTC()
+	pastLimit := now.Add(-3 * time.Hour)
+	futureLimit := now.Add(7 * 24 * time.Hour)
+
 	for i, m := range items {
 
 		item, ok := m.(map[string]interface{})
@@ -100,14 +105,13 @@ func fetchFromEntityAPI() ([]Match, error) {
 
 		status := safeString(item["status"])
 
-		// only upcoming or live
-		if status != "1" && status != "2" {
+		// keep only upcoming + live (loose filter)
+		if status == "" {
 			continue
 		}
 
 		matchTimeStr := safeString(item["date_start"])
 
-		// try multiple formats
 		matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
 		if err != nil {
 			matchTime, err = time.Parse(time.RFC3339, matchTimeStr)
@@ -116,27 +120,27 @@ func fetchFromEntityAPI() ([]Match, error) {
 			}
 		}
 
-		now := time.Now().UTC()
-
-pastLimit := now.Add(-3 * time.Hour)
-futureLimit := now.Add(7 * 24 * time.Hour)
-
-if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
-	continue
-}
-		
+		// time window filter
+		if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
+			continue
+		}
 
 		teama := safeMap(item["teama"])
 		teamb := safeMap(item["teamb"])
+
+		venue := safeString(item["venue"])
+
+		// ⭐ VENUE INTELLIGENCE
+		avg, spin, pace := getVenueStats(db, venue)
 
 		matches = append(matches, Match{
 			ID:         i + 1,
 			TeamA:      safeString(teama["name"]),
 			TeamB:      safeString(teamb["name"]),
-			Venue:      safeString(item["venue"]),
-			AvgScore:   160,
-			SpinAssist: 40,
-			PaceAssist: 60,
+			Venue:      venue,
+			AvgScore:   avg,
+			SpinAssist: spin,
+			PaceAssist: pace,
 			StartTime:  matchTimeStr,
 			Status:     status,
 		})
@@ -149,7 +153,7 @@ if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
    CRICAPI (SECONDARY)
 ========================= */
 
-func fetchFromCricAPI() ([]Match, error) {
+func fetchFromCricAPI(db *sql.DB) ([]Match, error) {
 
 	apiKey := os.Getenv("CRIC_API_KEY")
 	if apiKey == "" {
@@ -194,17 +198,21 @@ func fetchFromCricAPI() ([]Match, error) {
 			continue
 		}
 
-		matches = append(matches, Match{
-			ID:         i + 1000,
-			TeamA:      safeString(teams[0]),
-			TeamB:      safeString(teams[1]),
-			Venue:      safeString(item["venue"]),
-			AvgScore:   150,
-			SpinAssist: 50,
-			PaceAssist: 50,
-			StartTime:  safeString(item["dateTimeGMT"]),
-			Status:     "secondary",
-		})
+		venue := safeString(item["venue"])
+
+avg, spin, pace := getVenueStats(db, venue)
+
+matches = append(matches, Match{
+	ID:         i + 1000,
+	TeamA:      safeString(teams[0]),
+	TeamB:      safeString(teams[1]),
+	Venue:      venue,
+	AvgScore:   avg,
+	SpinAssist: spin,
+	PaceAssist: pace,
+	StartTime:  safeString(item["dateTimeGMT"]),
+	Status:     "secondary",
+})
 	}
 
 	return matches, nil
@@ -269,4 +277,24 @@ func FetchPlayersFromCricAPI(matchID string) ([]map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+func getVenueStats(db *sql.DB, venue string) (int, int, int) {
+
+	row := db.QueryRow(`
+	SELECT avg_score,
+	       (spin_wickets*100/NULLIF(spin_wickets+pace_wickets,0)),
+	       (pace_wickets*100/NULLIF(spin_wickets+pace_wickets,0))
+	FROM venue_stats
+	WHERE venue=$1
+	`, venue)
+
+	var avg, spin, pace int
+
+	err := row.Scan(&avg, &spin, &pace)
+
+	if err != nil {
+		return 150, 50, 50
+	}
+
+	return avg, spin, pace
 }
