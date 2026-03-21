@@ -12,8 +12,8 @@ func FetchMatchesFromEntityAPI() ([]map[string]interface{}, error) {
 	apiKey := os.Getenv("ENTITY_API_KEY")
 
 	url := fmt.Sprintf(
-		"https://rest.entitysport.com/v2/matches/?token=%s",
-		apiKey,
+	"https://rest.entitysport.com/v2/matches/?status=3&token=%s",
+	apiKey,
 	)
 
 	res, err := http.Get(url)
