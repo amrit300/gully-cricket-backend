@@ -29,7 +29,7 @@ type Match struct {
    ENTRY POINT
 ========================= */
 
-func GetMatches() ([]Match, error) {
+func GetMatches(db *sql.DB) ([]Match, error) {
 
 	// PRIMARY → EntitySports
 	matches, err := fetchFromEntityAPI(db)
