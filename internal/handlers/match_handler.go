@@ -21,9 +21,9 @@ func GetMatches(db *sql.DB) fiber.Handler {
 		}
 		defer rows.Close()
 
-		var live []fiber.Map
-		var upcoming []fiber.Map
-		var recent []fiber.Map
+		live := []fiber.Map{}
+		upcoming := []fiber.Map{}
+		recent := []fiber.Map{}
 
 		for rows.Next() {
 			var teamA, teamB, status, venue string
