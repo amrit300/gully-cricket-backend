@@ -11,48 +11,47 @@ func GetMatches(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
 		rows, err := db.Query(`
-			SELECT id, team_a, team_b, venue, start_time, status
+			SELECT team_a, team_b, start_time, status, venue
 			FROM matches_master
-			ORDER BY start_time ASC
+			ORDER BY start_time DESC
 			LIMIT 50
 		`)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
-			})
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		defer rows.Close()
 
-		var matches []fiber.Map
+		var live []fiber.Map
+		var upcoming []fiber.Map
+		var recent []fiber.Map
 
 		for rows.Next() {
+			var teamA, teamB, status, venue string
+			var startTime string
 
-			var id int
-			var teamA, teamB, venue, status string
-			var start time.Time
+			_ = rows.Scan(&teamA, &teamB, &startTime, &status, &venue)
 
-			err := rows.Scan(
-				&id,
-				&teamA,
-				&teamB,
-				&venue,
-				&start,
-				&status,
-			)
-			if err != nil {
-				continue
-			}
-
-			matches = append(matches, fiber.Map{
-				"id":        id,
+			match := fiber.Map{
 				"teamA":     teamA,
 				"teamB":     teamB,
-				"venue":     venue,
-				"startTime": start.Format(time.RFC3339),
+				"startTime": startTime,
 				"status":    status,
-			})
+				"venue":     venue,
+			}
+
+			if strings.Contains(status, "Live") || strings.Contains(status, "Stumps") {
+				live = append(live, match)
+			} else if strings.Contains(status, "Starts") || strings.Contains(status, "Upcoming") {
+				upcoming = append(upcoming, match)
+			} else {
+				recent = append(recent, match)
+			}
 		}
 
-		return c.JSON(matches)
+		return c.JSON(fiber.Map{
+			"live":     live,
+			"upcoming": upcoming,
+			"recent":   recent,
+		})
 	}
 }
