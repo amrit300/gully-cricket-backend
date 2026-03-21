@@ -55,16 +55,16 @@ func SyncPlayers(db *sql.DB) fiber.Handler {
 		matchID, _ := strconv.Atoi(c.Params("match_id"))
 		externalID := c.Params("external_id")
 
-		players, err := internal.FetchPlayersFromCricAPI(externalID)
+		players, err := internal.FetchPlayersFromEntityAPI(externalMatchID)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		for _, p := range players {
 
-			name := safeString(p["name"])
-			role := safeString(p["role"])
-			team := safeString(p["team"])
+			name := fmt.Sprintf("%v", p["title"])
+			role := fmt.Sprintf("%v", p["playing_role"])
+			team := fmt.Sprintf("%v", p["team_name"])
 
 			_, err := db.Exec(`
 				INSERT INTO players (name, team, role, credit, match_id)
