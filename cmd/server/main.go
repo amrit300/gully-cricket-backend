@@ -116,6 +116,15 @@ log.Println("DATABASE_URL:", databaseURL)
 		time.Sleep(6 * time.Hour)
 	}
 }()
+	go func() {
+	for {
+		err := ingestion.SyncMatchesToDB(db)
+		if err != nil {
+			log.Println("MATCH SYNC ERROR:", err)
+		}
+		time.Sleep(10 * time.Minute)
+	}
+}()
 
 	// ---------------------
 	// Fiber App
