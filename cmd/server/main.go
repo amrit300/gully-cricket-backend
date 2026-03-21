@@ -3,6 +3,7 @@ package main
 import (
 	"gully-cricket/internal"
 )
+import "gully-cricket/internal/ingestion"
 import "gully-cricket/internal/ai"
 import "github.com/gofiber/fiber/v2/middleware/cors"
 import (
@@ -105,6 +106,16 @@ log.Println("DATABASE_URL:", databaseURL)
 
 	log.Println("Database connected")
 	go leaderboardWorker()
+	
+	go func() {
+	for {
+		err := ingestion.UpdateVenueStats(db)
+		if err != nil {
+			log.Println("Venue update error:", err)
+		}
+		time.Sleep(6 * time.Hour)
+	}
+}()
 
 	// ---------------------
 	// Fiber App
