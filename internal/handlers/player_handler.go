@@ -48,3 +48,41 @@ func GetPlayers(db *sql.DB) fiber.Handler {
 		return c.JSON(players)
 	}
 }
+func SyncPlayers(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+
+		matchID, _ := strconv.Atoi(c.Params("match_id"))
+		externalID := c.Params("external_id")
+
+		players, err := internal.FetchPlayersFromCricAPI(externalID)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		for _, p := range players {
+
+			name := safeString(p["name"])
+			role := safeString(p["role"])
+			team := safeString(p["team"])
+
+			_, err := db.Exec(`
+				INSERT INTO players (name, team, role, credit, match_id)
+				VALUES ($1,$2,$3,8.5,$4)
+				ON CONFLICT DO NOTHING
+			`, name, team, role, matchID)
+
+			if err != nil {
+				log.Println("PLAYER INSERT ERROR:", err)
+			}
+		}
+
+		return c.JSON(fiber.Map{"status": "players synced"})
+	}
+}
+
+func safeString(v interface{}) string {
+	if s, ok := v.(string); ok && s != "" {
+		return s
+	}
+	return "Unknown"
+}
