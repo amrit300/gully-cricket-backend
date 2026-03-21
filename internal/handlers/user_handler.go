@@ -3,15 +3,14 @@ package handlers
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
-	"net/url"
-	"sort"
-	"strings"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/url"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -31,24 +30,36 @@ func CreateUser(db *sql.DB) fiber.Handler {
 		}
 
 		botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+		if botToken == "" {
+			log.Println("BOT TOKEN MISSING")
+			return c.Status(500).JSON(fiber.Map{"error": "server config error"})
+		}
 
 		if !verifyTelegram(req.InitData, botToken) {
 			return c.Status(403).JSON(fiber.Map{"error": "telegram verification failed"})
 		}
 
-		values, _ := url.ParseQuery(req.InitData)
+		values, err := url.ParseQuery(req.InitData)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid init data"})
+		}
 
 		userJSON := values.Get("user")
+		if userJSON == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "user missing"})
+		}
 
 		var telegramUser struct {
 			ID int `json:"id"`
 		}
 
-		json.Unmarshal([]byte(userJSON), &telegramUser)
+		if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid telegram user"})
+		}
 
 		var id int
 
-		err := db.QueryRow(`
+		err = db.QueryRow(`
 			INSERT INTO users (username, telegram)
 			VALUES ($1,$2)
 			ON CONFLICT (telegram)
@@ -57,13 +68,14 @@ func CreateUser(db *sql.DB) fiber.Handler {
 		`, req.Username, telegramUser.ID).Scan(&id)
 
 		if err != nil {
-			log.Println(err)
+			log.Println("USER INSERT ERROR:", err)
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
 		return c.JSON(fiber.Map{"user_id": id})
 	}
 }
+
 func verifyTelegram(initData string, botToken string) bool {
 
 	values, err := url.ParseQuery(initData)
