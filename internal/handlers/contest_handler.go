@@ -175,3 +175,42 @@ func JoinContest(db *sql.DB) fiber.Handler {
 		})
 	}
 }
+
+func GetContests(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+
+		matchID := c.Params("match_id")
+
+		rows, err := db.Query(`
+			SELECT id, match_id, prize_pool, total_spots, filled_spots, status
+			FROM contests
+			WHERE match_id=$1
+		`, matchID)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "db error"})
+		}
+		defer rows.Close()
+
+		var contests []fiber.Map
+
+		for rows.Next() {
+			var id, matchID, total, filled int
+			var prize float64
+			var status string
+
+			rows.Scan(&id, &matchID, &prize, &total, &filled, &status)
+
+			contests = append(contests, fiber.Map{
+				"id":           id,
+				"match_id":     matchID,
+				"prize_pool":   prize,
+				"total_spots":  total,
+				"filled_spots": filled,
+				"status":       status,
+			})
+		}
+
+		return c.JSON(contests)
+	}
+}
