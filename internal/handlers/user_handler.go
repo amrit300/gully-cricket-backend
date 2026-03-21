@@ -1,6 +1,12 @@
 package handlers
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/url"
+	"sort"
+	"strings"
 	"database/sql"
 	"encoding/json"
 	"log"
@@ -57,4 +63,33 @@ func CreateUser(db *sql.DB) fiber.Handler {
 
 		return c.JSON(fiber.Map{"user_id": id})
 	}
+}
+func verifyTelegram(initData string, botToken string) bool {
+
+	values, err := url.ParseQuery(initData)
+	if err != nil {
+		return false
+	}
+
+	hash := values.Get("hash")
+	values.Del("hash")
+
+	dataCheckArr := []string{}
+
+	for key, val := range values {
+		dataCheckArr = append(dataCheckArr, key+"="+val[0])
+	}
+
+	sort.Strings(dataCheckArr)
+
+	dataCheckString := strings.Join(dataCheckArr, "\n")
+
+	secretKey := sha256.Sum256([]byte(botToken))
+
+	h := hmac.New(sha256.New, secretKey[:])
+	h.Write([]byte(dataCheckString))
+
+	calculatedHash := hex.EncodeToString(h.Sum(nil))
+
+	return calculatedHash == hash
 }
