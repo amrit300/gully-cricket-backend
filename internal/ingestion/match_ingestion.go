@@ -16,13 +16,27 @@ func SyncMatchesToDB(db *sql.DB) error {
 		return err
 	}
 
+	log.Println("MATCHES RECEIVED:", len(matches))
+
+	if len(matches) == 0 {
+		log.Println("⚠️ NO MATCHES FROM API")
+		return nil
+	}
+
 	for _, m := range matches {
+
+		// ✅ SAFE EXTRACTION
 
 		matchID := fmt.Sprintf("%v", m["match_id"])
 
-		teama := m["teama"].(map[string]interface{})
-		teamb := m["teamb"].(map[string]interface{})
-		venueObj := m["venue"].(map[string]interface{})
+		teama, okA := m["teama"].(map[string]interface{})
+		teamb, okB := m["teamb"].(map[string]interface{})
+		venueObj, okV := m["venue"].(map[string]interface{})
+
+		if !okA || !okB || !okV {
+			log.Println("❌ INVALID MATCH STRUCTURE, SKIPPING")
+			continue
+		}
 
 		teamA := fmt.Sprintf("%v", teama["name"])
 		teamB := fmt.Sprintf("%v", teamb["name"])
@@ -33,8 +47,11 @@ func SyncMatchesToDB(db *sql.DB) error {
 
 		startTime, err := time.Parse("2006-01-02 15:04:05", startTimeStr)
 		if err != nil {
+			log.Println("❌ TIME PARSE ERROR:", err)
 			continue
 		}
+
+		// ✅ INSERT
 
 		_, err = db.Exec(`
 			INSERT INTO matches_master
@@ -57,12 +74,14 @@ func SyncMatchesToDB(db *sql.DB) error {
 		)
 
 		if err != nil {
-			log.Println("MATCH INSERT ERROR:", err)
+			log.Println("❌ MATCH INSERT ERROR:", err)
 			continue
 		}
+
+		log.Println("✅ INSERTED:", teamA, "vs", teamB)
 	}
 
-	log.Println("MATCH SYNC COMPLETED")
+	log.Println("✅ MATCH SYNC COMPLETED")
 
 	return nil
 }
