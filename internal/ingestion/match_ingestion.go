@@ -10,20 +10,27 @@ import (
 	"time"
 )
 
+/*
+SyncMatchesToDB
+→ Fetch matches from EntitySport API
+→ Parse safely
+→ Insert/Upsert into DB
+*/
+
 func SyncMatchesToDB(db *sql.DB) error {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
 
 	if apiKey == "" {
-		return fmt.Errorf("missing ENTITY_API_KEY")
+		return fmt.Errorf("ENTITY_API_KEY missing")
 	}
 
 	url := fmt.Sprintf(
-		"https://rest.entitysport.com/v2/matches/?token=%s&per_page=50",
+		"https://rest.entitysport.com/v2/matches/?token=%s",
 		apiKey,
 	)
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	res, err := client.Get(url)
 	if err != nil {
@@ -31,18 +38,29 @@ func SyncMatchesToDB(db *sql.DB) error {
 	}
 	defer res.Body.Close()
 
-	body, _ := io.ReadAll(res.Body)
+	/* =========================
+	   READ RAW RESPONSE
+	========================= */
 
-	fmt.Println("ENTITY API RAW:", string(body))
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return err
+	}
 
-	if res.StatusCode != 200 {
+	fmt.Println("API STATUS:", res.StatusCode)
+
+	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("API failed: %s", string(body))
 	}
+
+	/* =========================
+	   PARSE JSON
+	========================= */
 
 	var raw map[string]interface{}
 
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return err
+		return fmt.Errorf("JSON parse error: %v", err)
 	}
 
 	response, ok := raw["response"].(map[string]interface{})
@@ -52,43 +70,52 @@ func SyncMatchesToDB(db *sql.DB) error {
 
 	items, ok := response["items"].([]interface{})
 	if !ok {
-		return fmt.Errorf("no matches found")
+		return fmt.Errorf("missing items array")
 	}
 
-	now := time.Now().UTC()
+	fmt.Println("TOTAL MATCHES RECEIVED:", len(items))
+
+	/* =========================
+	   LOOP + INSERT
+	========================= */
 
 	for _, m := range items {
 
 		item := m.(map[string]interface{})
 
-		status := fmt.Sprintf("%v", item["status"])
+		// ✅ SAFE EXTRACTION
 
-		// keep only live/upcoming
-		if status != "1" && status != "2" {
+		teama, okA := item["teama"].(map[string]interface{})
+		teamb, okB := item["teamb"].(map[string]interface{})
+
+		if !okA || !okB {
+			fmt.Println("TEAM PARSE FAILED")
 			continue
 		}
+
+		teamA := fmt.Sprintf("%v", teama["name"])
+		teamB := fmt.Sprintf("%v", teamb["name"])
+
+		matchID := fmt.Sprintf("%v", item["match_id"])
+		status := fmt.Sprintf("%v", item["status_str"])
 
 		dateStr := fmt.Sprintf("%v", item["date_start"])
 
 		matchTime, err := time.Parse("2006-01-02 15:04:05", dateStr)
 		if err != nil {
+			fmt.Println("TIME PARSE ERROR:", err)
 			continue
 		}
 
-		matchTime = matchTime.UTC()
-
-		// ignore very old matches
-		if matchTime.Before(now.Add(-6 * time.Hour)) {
-			continue
+		// ✅ VENUE SAFE PARSE
+		venue := "Unknown"
+		if v, ok := item["venue"].(map[string]interface{}); ok {
+			venue = fmt.Sprintf("%v", v["name"])
 		}
 
-		teama := item["teama"].(map[string]interface{})
-		teamb := item["teamb"].(map[string]interface{})
-
-		teamA := fmt.Sprintf("%v", teama["name"])
-		teamB := fmt.Sprintf("%v", teamb["name"])
-		venue := fmt.Sprintf("%v", item["venue"])
-		externalID := fmt.Sprintf("%v", item["match_id"])
+		/* =========================
+		   UPSERT INTO DB
+		========================= */
 
 		_, err = db.Exec(`
 		INSERT INTO matches_master 
@@ -102,7 +129,7 @@ func SyncMatchesToDB(db *sql.DB) error {
 			start_time = EXCLUDED.start_time,
 			status = EXCLUDED.status
 		`,
-			externalID,
+			matchID,
 			teamA,
 			teamB,
 			venue,
