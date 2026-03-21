@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"io" // make sure this is added at top
 )
 
 /* =========================
@@ -32,9 +33,25 @@ func SyncMatchesToDB(db *sql.DB) error {
 
 	var raw map[string]interface{}
 
-	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
-		return err
-	}
+	
+
+body, err := io.ReadAll(res.Body)
+if err != nil {
+	return err
+}
+
+// 🔥 DEBUG: see EXACT API response
+fmt.Println("RAW API RESPONSE:", string(body))
+
+// ❌ Catch non-200 responses (like HTML error pages)
+if res.StatusCode != http.StatusOK {
+	return fmt.Errorf("API failed with status %d: %s", res.StatusCode, string(body))
+}
+
+// ✅ Safe JSON parse
+if err := json.Unmarshal(body, &raw); err != nil {
+	return fmt.Errorf("JSON parse error: %v | body: %s", err, string(body))
+}
 
 	data, ok := raw["data"].([]interface{})
 	if !ok {
