@@ -1062,7 +1062,6 @@ func updateTeamPoints(c *fiber.Ctx) error {
 		"status": "team points updated",
 	})
 }
-
 func leaderboardWorker() {
 
 	for {
@@ -1073,7 +1072,6 @@ func leaderboardWorker() {
 		SELECT DISTINCT contest_id, match_id
 		FROM leaderboard
 		`)
-
 		if err != nil {
 			log.Println("worker query error:", err)
 			continue
@@ -1090,7 +1088,7 @@ func leaderboardWorker() {
 			}
 
 			/* =========================
-			   STEP 1 → UPDATE TEAM POINTS (MATCH LEVEL)
+			   STEP 1 → UPDATE TEAM POINTS
 			========================= */
 
 			_, err = db.Exec(`
@@ -1122,7 +1120,7 @@ func leaderboardWorker() {
 			}
 
 			/* =========================
-			   STEP 2 → SYNC LEADERBOARD (CONTEST LEVEL)
+			   STEP 2 → SYNC LEADERBOARD POINTS
 			========================= */
 
 			_, err = db.Exec(`
@@ -1139,7 +1137,7 @@ func leaderboardWorker() {
 			}
 
 			/* =========================
-			   STEP 3 → RANK PER CONTEST
+			   STEP 3 → CORRECT RANKING (FIXED)
 			========================= */
 
 			_, err = db.Exec(`
@@ -1148,7 +1146,9 @@ func leaderboardWorker() {
 			FROM (
 				SELECT 
 				  team_id,
-				  RANK() OVER (ORDER BY points DESC) as rank
+				  DENSE_RANK() OVER (
+					ORDER BY points DESC, team_id ASC
+				  ) as rank
 				FROM leaderboard
 				WHERE contest_id = $1
 			) r
@@ -1160,6 +1160,10 @@ func leaderboardWorker() {
 				log.Println("leaderboard rank error:", err)
 				continue
 			}
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Println("row iteration error:", err)
 		}
 
 		rows.Close()
