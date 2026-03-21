@@ -47,6 +47,9 @@ func GetMatches(db *sql.DB) fiber.Handler {
 				recent = append(recent, match)
 			}
 		}
+		if len(live) == 0 && len(upcoming) == 0 {
+			live = recent
+		}
 
 		return c.JSON(fiber.Map{
 			"live":     live,
