@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"database/sql"
-	"time"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 )
