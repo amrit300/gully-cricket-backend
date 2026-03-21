@@ -1,12 +1,12 @@
 package internal
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
-	"database/sql"
 )
 
 /* =========================
@@ -103,15 +103,15 @@ func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 			continue
 		}
 
+		// ✅ STATUS FILTER (LIVE + UPCOMING)
 		status := safeString(item["status"])
-
-		// keep only upcoming + live (loose filter)
-		if status == "" {
+		if status != "1" && status != "2" {
 			continue
 		}
 
 		matchTimeStr := safeString(item["date_start"])
 
+		// ✅ SAFE TIME PARSE
 		matchTime, err := time.Parse("2006-01-02 15:04:05", matchTimeStr)
 		if err != nil {
 			matchTime, err = time.Parse(time.RFC3339, matchTimeStr)
@@ -120,7 +120,9 @@ func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 			}
 		}
 
-		// time window filter
+		matchTime = matchTime.UTC()
+
+		// ✅ TIME FILTER
 		if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
 			continue
 		}
@@ -129,8 +131,11 @@ func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 		teamb := safeMap(item["teamb"])
 
 		venue := safeString(item["venue"])
+		if venue == "Unknown" {
+			venue = "Default Stadium"
+		}
 
-		// ⭐ VENUE INTELLIGENCE
+		// ✅ VENUE INTELLIGENCE
 		avg, spin, pace := getVenueStats(db, venue)
 
 		matches = append(matches, Match{
@@ -186,6 +191,10 @@ func fetchFromCricAPI(db *sql.DB) ([]Match, error) {
 
 	var matches []Match
 
+	now := time.Now().UTC()
+	pastLimit := now.Add(-3 * time.Hour)
+	futureLimit := now.Add(7 * 24 * time.Hour)
+
 	for i, m := range data {
 
 		item, ok := m.(map[string]interface{})
@@ -198,21 +207,38 @@ func fetchFromCricAPI(db *sql.DB) ([]Match, error) {
 			continue
 		}
 
+		matchTimeStr := safeString(item["dateTimeGMT"])
+
+		matchTime, err := time.Parse(time.RFC3339, matchTimeStr)
+		if err != nil {
+			continue
+		}
+
+		matchTime = matchTime.UTC()
+
+		// ✅ TIME FILTER
+		if matchTime.Before(pastLimit) || matchTime.After(futureLimit) {
+			continue
+		}
+
 		venue := safeString(item["venue"])
+		if venue == "Unknown" {
+			venue = "Default Stadium"
+		}
 
-avg, spin, pace := getVenueStats(db, venue)
+		avg, spin, pace := getVenueStats(db, venue)
 
-matches = append(matches, Match{
-	ID:         i + 1000,
-	TeamA:      safeString(teams[0]),
-	TeamB:      safeString(teams[1]),
-	Venue:      venue,
-	AvgScore:   avg,
-	SpinAssist: spin,
-	PaceAssist: pace,
-	StartTime:  safeString(item["dateTimeGMT"]),
-	Status:     "secondary",
-})
+		matches = append(matches, Match{
+			ID:         i + 1000,
+			TeamA:      safeString(teams[0]),
+			TeamB:      safeString(teams[1]),
+			Venue:      venue,
+			AvgScore:   avg,
+			SpinAssist: spin,
+			PaceAssist: pace,
+			StartTime:  matchTimeStr,
+			Status:     "secondary",
+		})
 	}
 
 	return matches, nil
@@ -235,6 +261,7 @@ func safeMap(v interface{}) map[string]interface{} {
 	}
 	return map[string]interface{}{}
 }
+
 func FetchPlayersFromCricAPI(matchID string) ([]map[string]interface{}, error) {
 
 	apiKey := os.Getenv("CRIC_API_KEY")
@@ -278,12 +305,18 @@ func FetchPlayersFromCricAPI(matchID string) ([]map[string]interface{}, error) {
 
 	return result, nil
 }
+
+/* =========================
+   VENUE STATS
+========================= */
+
 func getVenueStats(db *sql.DB, venue string) (int, int, int) {
 
 	row := db.QueryRow(`
-	SELECT avg_score,
-	       (spin_wickets*100/NULLIF(spin_wickets+pace_wickets,0)),
-	       (pace_wickets*100/NULLIF(spin_wickets+pace_wickets,0))
+	SELECT 
+		COALESCE(avg_score,150),
+		COALESCE((spin_wickets*100/NULLIF(spin_wickets+pace_wickets,0)),50),
+		COALESCE((pace_wickets*100/NULLIF(spin_wickets+pace_wickets,0)),50)
 	FROM venue_stats
 	WHERE venue=$1
 	`, venue)
@@ -291,7 +324,6 @@ func getVenueStats(db *sql.DB, venue string) (int, int, int) {
 	var avg, spin, pace int
 
 	err := row.Scan(&avg, &spin, &pace)
-
 	if err != nil {
 		return 150, 50, 50
 	}
