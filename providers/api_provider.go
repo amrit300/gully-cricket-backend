@@ -1,43 +1,55 @@
-package main
+package internal
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
 )
 
-func GetMatchesFromAPI() ([]Match, error) {
+/*
+FetchPlayersFromEntityAPI
+→ Fetch players for a match
+*/
 
-	req, _ := http.NewRequest("GET", "https://api.cricapi.com/v1/currentMatches?apikey=YOUR_API_KEY", nil)
+func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error) {
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	apiKey := os.Getenv("ENTITY_API_KEY")
 
+	url := fmt.Sprintf(
+		"https://rest.entitysport.com/v2/matches/%s/squad?token=%s",
+		matchID,
+		apiKey,
+	)
+
+	res, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer res.Body.Close()
+
+	body, _ := io.ReadAll(res.Body)
 
 	var raw map[string]interface{}
 
-	json.NewDecoder(resp.Body).Decode(&raw)
-
-	data := raw["data"].([]interface{})
-
-	var matches []Match
-
-	for _, m := range data {
-
-		match := m.(map[string]interface{})
-
-		matches = append(matches, Match{
-			ID:        match["id"].(string),
-			TeamA:     match["teams"].([]interface{})[0].(string),
-			TeamB:     match["teams"].([]interface{})[1].(string),
-			StartTime: match["dateTimeGMT"].(string),
-			Status:    match["status"].(string),
-		})
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
 	}
 
-	return matches, nil
-	
+	response := raw["response"].(map[string]interface{})
+	teams := response["squads"].([]interface{})
+
+	var players []map[string]interface{}
+
+	for _, t := range teams {
+		team := t.(map[string]interface{})
+		pList := team["players"].([]interface{})
+
+		for _, p := range pList {
+			players = append(players, p.(map[string]interface{}))
+		}
+	}
+
+	return players, nil
 }
