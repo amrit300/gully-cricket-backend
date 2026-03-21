@@ -242,8 +242,7 @@ app.Options("/*", func(c *fiber.Ctx) error {
 })
 	app.Get("/sync-matches", func(c *fiber.Ctx) error {
 
-	err := internal.SyncMatches(db)
-
+	err := ingestion.SyncMatchesToDB(db)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
