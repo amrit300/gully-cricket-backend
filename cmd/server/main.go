@@ -161,11 +161,49 @@ app.Options("/*", func(c *fiber.Ctx) error {
 
 	app.Get("/matches", func(c *fiber.Ctx) error {
 
-	matches, err := internal.GetMatches(db)
-
+	rows, err := db.Query(`
+	SELECT id, team_a, team_b, venue, start_time, status
+	FROM matches_master
+	ORDER BY start_time ASC
+	LIMIT 50
+	`)
 	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+	}
+	defer rows.Close()
+
+	var matches []internal.Match
+
+	for rows.Next() {
+
+		var m internal.Match
+		var start time.Time
+
+		err := rows.Scan(
+			&m.ID,
+			&m.TeamA,
+			&m.TeamB,
+			&m.Venue,
+			&start,
+			&m.Status,
+		)
+		if err != nil {
+			continue
+		}
+
+		m.StartTime = start.Format(time.RFC3339)
+
+		avg, spin, pace := internal.GetVenueStats(db, m.Venue)
+		m.AvgScore = avg
+		m.SpinAssist = spin
+		m.PaceAssist = pace
+
+		matches = append(matches, m)
+	}
+
+	if err := rows.Err(); err != nil {
 		return c.Status(500).JSON(fiber.Map{
-			"error": err.Error(),
+			"error": "row iteration failed",
 		})
 	}
 
