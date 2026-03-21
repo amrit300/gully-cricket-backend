@@ -136,7 +136,7 @@ func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 		}
 
 		// ✅ VENUE INTELLIGENCE
-		avg, spin, pace := getVenueStats(db, venue)
+		avg, spin, pace := GetVenueStats(db, venue)
 
 		matches = append(matches, Match{
 			ID:         i + 1,
