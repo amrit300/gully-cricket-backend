@@ -310,7 +310,7 @@ func FetchPlayersFromCricAPI(matchID string) ([]map[string]interface{}, error) {
    VENUE STATS
 ========================= */
 
-func getVenueStats(db *sql.DB, venue string) (int, int, int) {
+func GetVenueStats(db *sql.DB, venue string) (int, int, int) {
 
 	row := db.QueryRow(`
 	SELECT 
