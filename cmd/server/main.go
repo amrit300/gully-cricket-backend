@@ -113,6 +113,7 @@ func main() {
 	})
 
 	// MATCHES (DB based)
+	app.Get("/matches", handlers.GetMatches(db))
 	app.Get("/sync-matches", func(c *fiber.Ctx) error {
 
 	err := ingestion.SyncMatchesToDB(db)
