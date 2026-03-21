@@ -51,3 +51,46 @@ func SyncPlayers(db *sql.DB) fiber.Handler {
 		})
 	}
 }
+func GetPlayers(db *sql.DB) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+
+		matchID := c.Params("match_id")
+
+		rows, err := db.Query(`
+			SELECT id, name, team, role, credit, fantasy_points
+			FROM players
+			WHERE match_id = $1
+		`, matchID)
+
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		defer rows.Close()
+
+		var players []map[string]interface{}
+
+		for rows.Next() {
+			var id int
+			var name, team, role string
+			var credit, fantasyPoints float64
+
+			err := rows.Scan(&id, &name, &team, &role, &credit, &fantasyPoints)
+			if err != nil {
+				continue
+			}
+
+			players = append(players, fiber.Map{
+				"id": id,
+				"name": name,
+				"team": team,
+				"role": role,
+				"credit": credit,
+				"fantasy_points": fantasyPoints,
+			})
+		}
+
+		return c.JSON(players)
+	}
+}
