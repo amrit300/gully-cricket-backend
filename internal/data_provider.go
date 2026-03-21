@@ -105,7 +105,7 @@ func fetchFromEntityAPI(db *sql.DB) ([]Match, error) {
 
 		// ✅ STATUS FILTER (LIVE + UPCOMING)
 		status := safeString(item["status"])
-		if status != "1" && status != "2" {
+		if status == "" {
 			continue
 		}
 
