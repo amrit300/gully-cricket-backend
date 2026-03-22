@@ -32,6 +32,13 @@ func JWTProtected() fiber.Handler {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid token"})
 		}
 
+		// 🔥 EXTRACT USER ID
+		claims := token.Claims.(jwt.MapClaims)
+		userID := int(claims["user_id"].(float64))
+
+		// STORE IN CONTEXT
+		c.Locals("user_id", userID)
+
 		return c.Next()
 	}
 }
