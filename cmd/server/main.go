@@ -11,6 +11,7 @@ import (
 	"gully-cricket/internal/handlers"
 	"gully-cricket/internal/ingestion"
 	"gully-cricket/internal/services"
+	"gully-cricket/internal/workers"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -73,6 +74,12 @@ func main() {
 			time.Sleep(10 * time.Minute)
 		}
 	}()
+	go func() {
+	for {
+		workers.ProcessCompletedMatches(db)
+		time.Sleep(30 * time.Second)
+	}
+}()
 
 	//////////////////////////////////////////////////////////////
 	// INITIAL SYNC (CRITICAL FIX)
