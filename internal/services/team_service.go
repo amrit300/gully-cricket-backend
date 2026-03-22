@@ -6,7 +6,7 @@ import (
 	"gully-cricket/internal/validators"
 )
 
-func CreateTeam(db *sql.DB, userID int, matchID int, players []int, captainID int, viceCaptainID int) error {
+func CreateTeam(db *sql.DB, userID int, matchID int, playerIDs []int, captainID int, viceCaptainID int) error {
 
 	// Validate team
 	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
