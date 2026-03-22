@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,17 +11,13 @@ import (
 func RateLimit() fiber.Handler {
 	return limiter.New(limiter.Config{
 
-		// 🔥 Better limits
 		Max:        20,
 		Expiration: 1 * time.Second,
 
-		// 🔐 Use user_id if available, else fallback to IP
 		KeyGenerator: func(c *fiber.Ctx) string {
-
 			if userID := c.Locals("user_id"); userID != nil {
-				return "user_" + fiber.Utils().ToString(userID)
+				return fmt.Sprintf("user_%v", userID)
 			}
-
 			return c.IP()
 		},
 
