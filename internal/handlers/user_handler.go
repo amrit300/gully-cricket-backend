@@ -1,125 +1,149 @@
 package handlers
 
 import (
-\t"crypto/hmac"
-\t"crypto/sha256"
-\t"database/sql"
-\t"encoding/hex"
-\t"encoding/json"
-\t"log"
-\t"net/url"
-\t"os"
-\t"sort"
-\t"strings"
-\t"time"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"log"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
-\t"github.com/golang-jwt/jwt/v4"
-\t"github.com/gofiber/fiber/v2"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/gofiber/fiber/v2"
 )
 
 type RegisterRequest struct {
-\tUsername string `json:"username"`
-\tInitData string `json:"initData"`
+	Username string `json:"username"`
+	InitData string `json:"initData"`
 }
 
 func CreateUser(db *sql.DB) fiber.Handler {
-\treturn func(c *fiber.Ctx) error {
+	return func(c *fiber.Ctx) error {
 
-\t\tvar req RegisterRequest
-\t\tif err := c.BodyParser(&req); err != nil {
-\t\t\treturn c.Status(400).JSON(fiber.Map{"error": "invalid request"})
-\t\t}
+		var req RegisterRequest
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
+		}
 
-\t\tif len(req.Username) < 3 {
-\t\t\treturn c.Status(400).JSON(fiber.Map{"error": "username too short"})
-\t\t}
+		if len(req.Username) < 3 {
+			return c.Status(400).JSON(fiber.Map{"error": "username too short"})
+		}
 
-\t\tbotToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-\t\tif botToken == "" {
-\t\t\tlog.Println("BOT TOKEN MISSING")
-\t\t\treturn c.Status(500).JSON(fiber.Map{"error": "server config error"})
-\t\t}
+		botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+		if botToken == "" {
+			log.Println("BOT TOKEN MISSING")
+			return c.Status(500).JSON(fiber.Map{"error": "server config error"})
+		}
 
-\t\tif !verifyTelegram(req.InitData, botToken) {
-\t\t\treturn c.Status(403).JSON(fiber.Map{"error": "telegram verification failed"})
-\t\t}
+		// 🔐 Verify Telegram data
+		if !verifyTelegram(req.InitData, botToken) {
+			return c.Status(403).JSON(fiber.Map{"error": "telegram verification failed"})
+		}
 
-\t\tvalues, err := url.ParseQuery(req.InitData)
-\t\tif err != nil {
-\t\t\treturn c.Status(400).JSON(fiber.Map{"error": "invalid init data"})
-\t\t}
+		values, err := url.ParseQuery(req.InitData)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid init data"})
+		}
 
-\t\tuserJSON := values.Get("user")
-\t\tif userJSON == "" {
-\t\t\treturn c.Status(400).JSON(fiber.Map{"error": "user missing"})
-\t\t}
+		// ⏱️ Check auth_date freshness (max 1 day)
+		authDateStr := values.Get("auth_date")
+		authDate, _ := strconv.ParseInt(authDateStr, 10, 64)
 
-\t\tvar telegramUser struct {
-\t\t\tID int64 `json:"id"`
-\t\t}
-\t\tif err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
-\t\t\treturn c.Status(400).JSON(fiber.Map{"error": "invalid telegram user"})
-\t\t}
+		if time.Now().Unix()-authDate > 86400 {
+			return c.Status(403).JSON(fiber.Map{"error": "init data expired"})
+		}
 
-\t\t// ✅ FIX: telegram_id not telegram
-\t\tvar id int
-\t\terr = db.QueryRow(`
-\t\t\tINSERT INTO users (username, telegram_id)
-\t\t\tVALUES ($1, $2)
-\t\t\tON CONFLICT (telegram_id) DO UPDATE
-\t\t\tSET username = EXCLUDED.username
-\t\t\tRETURNING id
-\t\t`, req.Username, telegramUser.ID).Scan(&id)
+		userJSON := values.Get("user")
+		if userJSON == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "user missing"})
+		}
 
-\t\tif err != nil {
-\t\t\tlog.Println("USER INSERT ERROR:", err)
-\t\t\treturn c.Status(500).JSON(fiber.Map{"error": err.Error()})
-\t\t}
+		var telegramUser struct {
+			ID int64 `json:"id"`
+		}
 
-\t\t// ✅ FIX: return JWT token
-\t\tjwtSecret := os.Getenv("JWT_SECRET")
-\t\tif jwtSecret == "" {
-\t\t\tjwtSecret = "change-this-in-production"
-\t\t}
+		if err := json.Unmarshal([]byte(userJSON), &telegramUser); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "invalid telegram user"})
+		}
 
-\t\ttoken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-\t\t\t"user_id": id,
-\t\t\t"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(),
-\t\t})
+		var id int
 
-\t\ttokenString, err := token.SignedString([]byte(jwtSecret))
-\t\tif err != nil {
-\t\t\treturn c.Status(500).JSON(fiber.Map{"error": "token generation failed"})
-\t\t}
+		err = db.QueryRow(`
+			INSERT INTO users (username, telegram_id)
+			VALUES ($1, $2)
+			ON CONFLICT (telegram_id) DO UPDATE
+			SET username = EXCLUDED.username
+			RETURNING id
+		`, req.Username, telegramUser.ID).Scan(&id)
 
-\t\treturn c.JSON(fiber.Map{
-\t\t\t"user_id": id,
-\t\t\t"token":   tokenString,
-\t\t})
-\t}
+		if err != nil {
+			log.Println("USER INSERT ERROR:", err)
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		// 🔐 JWT
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret == "" {
+			return c.Status(500).JSON(fiber.Map{"error": "jwt not configured"})
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"user_id": id,
+			"exp":     time.Now().Add(30 * 24 * time.Hour).Unix(),
+		})
+
+		tokenString, err := token.SignedString([]byte(jwtSecret))
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "token generation failed"})
+		}
+
+		return c.JSON(fiber.Map{
+			"user_id": id,
+			"token":   tokenString,
+		})
+	}
 }
 
+//////////////////////////////////////////////////////////////
+// 🔐 TELEGRAM VERIFICATION (HARDENED)
+//////////////////////////////////////////////////////////////
+
 func verifyTelegram(initData string, botToken string) bool {
-\tvalues, err := url.ParseQuery(initData)
-\tif err != nil {
-\t\treturn false
-\t}
 
-\thash := values.Get("hash")
-\tvalues.Del("hash")
+	values, err := url.ParseQuery(initData)
+	if err != nil {
+		return false
+	}
 
-\tvar dataCheckArr []string
-\tfor key, val := range values {
-\t\tdataCheckArr = append(dataCheckArr, key+"="+val[0])
-\t}
-\tsort.Strings(dataCheckArr)
-\tdataCheckString := strings.Join(dataCheckArr, "
-")
+	hash := values.Get("hash")
+	values.Del("hash")
 
-\tsecretKey := sha256.Sum256([]byte(botToken))
-\th := hmac.New(sha256.New, secretKey[:])
-\th.Write([]byte(dataCheckString))
-\tcalculatedHash := hex.EncodeToString(h.Sum(nil))
+	var dataCheckArr []string
 
-\treturn calculatedHash == hash
+	for key, val := range values {
+		dataCheckArr = append(dataCheckArr, key+"="+val[0])
+	}
+
+	sort.Strings(dataCheckArr)
+	dataCheckString := strings.Join(dataCheckArr, "\n")
+
+	secretKey := sha256.Sum256([]byte(botToken))
+
+	h := hmac.New(sha256.New, secretKey[:])
+	h.Write([]byte(dataCheckString))
+
+	calculatedHash := hex.EncodeToString(h.Sum(nil))
+
+	// 🔥 Constant-time compare (prevents timing attacks)
+	return subtle.ConstantTimeCompare(
+		[]byte(calculatedHash),
+		[]byte(hash),
+	) == 1
 }
