@@ -9,7 +9,7 @@ import (
 func CreateTeam(db *sql.DB, userID int, matchID int, players []int, captainID int, viceCaptainID int) error {
 
 	// Validate team
-	if err := validators.ValidateTeam(players, captainID, viceCaptainID); err != nil {
+	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
 		return err
 	}
 
@@ -35,7 +35,7 @@ func CreateTeam(db *sql.DB, userID int, matchID int, players []int, captainID in
 		_, err := tx.Exec(`
 			INSERT INTO team_players (team_id, player_id)
 			VALUES ($1,$2)
-		`, teamID, p.ID)
+		`, teamID, p)
 
 		if err != nil {
 			tx.Rollback()
