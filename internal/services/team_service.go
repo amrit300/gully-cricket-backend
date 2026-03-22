@@ -2,12 +2,11 @@ package services
 
 import (
 	"database/sql"
-	"errors"
 
 	"gully-cricket/internal/validators"
 )
 
-func CreateTeam(db *sql.DB, userID int, matchID int, players []validators.Player, captainID int, viceCaptainID int) error {
+func CreateTeam(db *sql.DB, userID int, matchID int, players []validators.Player int, captainID int, viceCaptainID int) error {
 
 	// Validate team
 	if err := validators.ValidateTeam(players, captainID, viceCaptainID); err != nil {
