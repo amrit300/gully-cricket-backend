@@ -12,6 +12,7 @@ import (
 	"gully-cricket/internal/ingestion"
 	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
+	"gully-cricket/internal/middleware"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -115,47 +116,58 @@ func main() {
 	// ROUTES
 	//////////////////////////////////////////////////////////////
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Gully Cricket Backend Running")
-	})
+	// 🌐 PUBLIC ROUTES (NO AUTH REQUIRED)
 
-	// MATCHES (DB based)
-	app.Get("/matches", handlers.GetMatches(db))
-	app.Get("/sync-matches", func(c *fiber.Ctx) error {
+app.Get("/", func(c *fiber.Ctx) error {
+	return c.SendString("Gully Cricket Backend Running")
+})
 
+// MATCHES
+app.Get("/matches", handlers.GetMatches(db))
+
+app.Get("/sync-matches", func(c *fiber.Ctx) error {
 	err := ingestion.SyncMatchesToDB(db)
-
 	if err != nil {
 		fmt.Println("SYNC ERROR:", err)
-
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-
 	return c.JSON(fiber.Map{
 		"status": "matches synced",
 	})
 })
 
-	// PLAYERS
-	app.Get("/players/:match_id", handlers.GetPlayers(db))
-	app.Get("/sync-players/:match_id/:external_id", handlers.SyncPlayers(db))
+// PLAYERS
+app.Get("/players/:match_id", handlers.GetPlayers(db))
+app.Get("/sync-players/:match_id/:external_id", handlers.SyncPlayers(db))
 
-	// USER
-	app.Post("/user/register", handlers.CreateUser(db))
+// USER
+app.Post("/user/register", handlers.CreateUser(db))
 
-	// TEAM
-	app.Post("/teams", handlers.CreateTeam(db))
+// CONTEST (VIEW ONLY)
+app.Get("/contests/:match_id", handlers.GetContests(db))
 
-	// CONTEST
-	app.Get("/contests/:match_id", handlers.GetContests(db))
-	app.Post("/join-contest", handlers.JoinContest(db))
+// LEADERBOARD
+app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
 
-	// WALLET
-	app.Get("/wallet/:user_id", handlers.GetBalance(db))
-	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
+//////////////////////////////////////////////////////////////
+// 🔐 PROTECTED ROUTES (JWT REQUIRED)
+//////////////////////////////////////////////////////////////
 
+protected := app.Group("/api", middleware.JWTProtected())
+
+// TEAM (CREATE)
+protected.Post("/teams", handlers.CreateTeam(db))
+
+// JOIN CONTEST
+protected.Post("/contest/join", handlers.JoinContest(db))
+
+// WITHDRAW
+protected.Post("/withdraw", handlers.RequestWithdrawal(db))
+
+// WALLET VIEW (optional public or move to protected later)
+protected.Get("/wallet/:user_id", handlers.GetBalance(db))
 	//////////////////////////////////////////////////////////////
 	// SERVER START
 	//////////////////////////////////////////////////////////////
