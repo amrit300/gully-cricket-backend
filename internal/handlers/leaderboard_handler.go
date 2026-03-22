@@ -10,15 +10,25 @@ import (
 func GetLeaderboard(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		contestID, _ := strconv.Atoi(c.Params("contest_id"))
+		contestID, err := strconv.Atoi(c.Params("contest_id"))
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "invalid contest_id",
+			})
+		}
 
-		rows, _ := db.Query(`
-			SELECT team_id, points, rank
-			FROM leaderboard
-			WHERE contest_id=$1
-			ORDER BY rank ASC
+		rows, err := db.Query(`
+			SELECT l.team_id, l.points, l.rank, l.winnings
+			FROM leaderboard l
+			WHERE l.contest_id = $1
+			ORDER BY l.rank ASC
 		`, contestID)
 
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
 		defer rows.Close()
 
 		var result []fiber.Map
@@ -27,13 +37,17 @@ func GetLeaderboard(db *sql.DB) fiber.Handler {
 			var teamID int
 			var points float64
 			var rank int
+			var winnings float64
 
-			rows.Scan(&teamID, &points, &rank)
+			if err := rows.Scan(&teamID, &points, &rank, &winnings); err != nil {
+				continue
+			}
 
 			result = append(result, fiber.Map{
-				"team_id": teamID,
-				"points":  points,
-				"rank":    rank,
+				"team_id":  teamID,
+				"points":   points,
+				"rank":     rank,
+				"winnings": winnings,
 			})
 		}
 
