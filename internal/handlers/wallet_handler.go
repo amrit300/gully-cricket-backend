@@ -12,11 +12,18 @@ import (
 func GetBalance(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		userID, _ := strconv.Atoi(c.Params("user_id"))
+		userID := c.Locals("user_id").(int)
 
-		balance, err := services.GetWalletBalance(db, userID)
+		var balance float64
+
+		err := db.QueryRow(`
+			SELECT wallet_balance FROM users WHERE id=$1
+		`, userID).Scan(&balance)
+
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(500).JSON(fiber.Map{
+				"error": "failed to fetch balance",
+			})
 		}
 
 		return c.JSON(fiber.Map{
