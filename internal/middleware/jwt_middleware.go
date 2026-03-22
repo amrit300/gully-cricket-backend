@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 func JWTProtected() fiber.Handler {
@@ -13,30 +13,46 @@ func JWTProtected() fiber.Handler {
 
 		authHeader := c.Get("Authorization")
 
-		if authHeader == "" {
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
 			return c.Status(401).JSON(fiber.Map{"error": "missing token"})
 		}
 
-		tokenString := strings.Split(authHeader, "Bearer ")
-		if len(tokenString) != 2 {
-			return c.Status(401).JSON(fiber.Map{"error": "invalid token format"})
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		jwtSecret := os.Getenv("JWT_SECRET")
+		if jwtSecret == "" {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "server misconfigured",
+			})
 		}
 
-		secret := os.Getenv("JWT_SECRET")
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 
-		token, err := jwt.Parse(tokenString[1], func(token *jwt.Token) (interface{}, error) {
-			return []byte(secret), nil
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fiber.ErrUnauthorized
+			}
+
+			return []byte(jwtSecret), nil
 		})
 
 		if err != nil || !token.Valid {
 			return c.Status(401).JSON(fiber.Map{"error": "invalid token"})
 		}
 
-		// 🔥 EXTRACT USER ID
-		claims := token.Claims.(jwt.MapClaims)
-		userID := int(claims["user_id"].(float64))
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return c.Status(401).JSON(fiber.Map{"error": "invalid claims"})
+		}
 
-		// STORE IN CONTEXT
+		// 🔐 SAFE extraction
+		userIDFloat, ok := claims["user_id"].(float64)
+		if !ok {
+			return c.Status(401).JSON(fiber.Map{"error": "invalid user_id"})
+		}
+
+		userID := int(userIDFloat)
+
+		// ✅ CONSISTENT KEY
 		c.Locals("user_id", userID)
 
 		return c.Next()
