@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,47 +11,69 @@ import (
 func GetLeaderboard(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		contestID, err := strconv.Atoi(c.Params("contest_id"))
+		// ✅ SAFE PARAM PARSE
+		contestIDStr := c.Params("contestId")
+		contestID, err := strconv.Atoi(contestIDStr)
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{
-				"error": "invalid contest_id",
+				"error": "invalid contest id",
 			})
 		}
 
 		rows, err := db.Query(`
-			SELECT l.team_id, l.points, l.rank, l.winnings
+			SELECT
+				l.rank,
+				l.points,
+				l.winnings,
+				u.username,
+				t.team_name
 			FROM leaderboard l
+			JOIN teams t ON t.id = l.team_id
+			JOIN users u ON u.id = t.user_id
 			WHERE l.contest_id = $1
 			ORDER BY l.rank ASC
+			LIMIT 100
 		`, contestID)
 
 		if err != nil {
+			log.Println("LEADERBOARD QUERY ERROR:", err)
 			return c.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
+				"error": "internal server error",
 			})
 		}
 		defer rows.Close()
 
-		var result []fiber.Map
+		type Entry struct {
+			Rank     int     `json:"rank"`
+			Points   float64 `json:"points"`
+			Winnings float64 `json:"winnings"`
+			Username string  `json:"username"`
+			TeamName string  `json:"team_name"`
+		}
+
+		var entries []Entry
 
 		for rows.Next() {
-			var teamID int
-			var points float64
-			var rank int
-			var winnings float64
+			var e Entry
 
-			if err := rows.Scan(&teamID, &points, &rank, &winnings); err != nil {
+			if err := rows.Scan(
+				&e.Rank,
+				&e.Points,
+				&e.Winnings,
+				&e.Username,
+				&e.TeamName,
+			); err != nil {
+				log.Println("SCAN ERROR:", err)
 				continue
 			}
 
-			result = append(result, fiber.Map{
-				"team_id":  teamID,
-				"points":   points,
-				"rank":     rank,
-				"winnings": winnings,
-			})
+			entries = append(entries, e)
 		}
 
-		return c.JSON(result)
+		if entries == nil {
+			entries = []Entry{}
+		}
+
+		return c.JSON(entries)
 	}
 }
