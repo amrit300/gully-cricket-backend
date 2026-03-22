@@ -154,6 +154,7 @@ func main() {
 
 	// WALLET
 	app.Get("/wallet/:user_id", handlers.GetBalance(db))
+	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
 
 	//////////////////////////////////////////////////////////////
 	// SERVER START
