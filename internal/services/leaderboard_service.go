@@ -125,3 +125,46 @@ func updateDenseRanks(db *sql.DB, contestID int) {
 		log.Println("rank update error:", err)
 	}
 }
+func assignWinnings(db *sql.DB, contestID int) {
+
+	rows, err := db.Query(`
+		SELECT team_id, rank
+		FROM leaderboard
+		WHERE contest_id = $1
+	`, contestID)
+
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var teamID int
+		var rank int
+
+		if err := rows.Scan(&teamID, &rank); err != nil {
+			continue
+		}
+
+		var amount float64
+
+		err := db.QueryRow(`
+			SELECT amount
+			FROM contest_prizes
+			WHERE contest_id=$1
+			AND $2 BETWEEN rank_start AND rank_end
+			LIMIT 1
+		`, contestID, rank).Scan(&amount)
+
+		if err != nil {
+			continue
+		}
+
+		db.Exec(`
+			UPDATE leaderboard
+			SET winnings = $1
+			WHERE contest_id=$2 AND team_id=$3
+		`, amount, contestID, teamID)
+	}
+}
