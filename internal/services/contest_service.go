@@ -1,3 +1,9 @@
+package services
+
+import (
+	"database/sql"
+	"fmt"
+)
 func JoinContest(db *sql.DB, userID, contestID, teamID int) error {
 
 	tx, err := db.Begin()
