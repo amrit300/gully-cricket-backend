@@ -8,12 +8,10 @@ import (
 )
 
 type TeamRequest struct {
-	UserID      int    `json:"user_id"`
-	MatchID     int    `json:"match_id"`
-	TeamName    string `json:"team_name"`
-	Captain     int    `json:"captain"`
-	ViceCaptain int    `json:"vice_captain"`
-	Players     []int  `json:"players"`
+	MatchID     int   `json:"match_id"`
+	Captain     int   `json:"captain"`
+	ViceCaptain int   `json:"vice_captain"`
+	Players     []int `json:"players"`
 }
 
 func CreateTeam(db *sql.DB) fiber.Handler {
@@ -21,28 +19,41 @@ func CreateTeam(db *sql.DB) fiber.Handler {
 
 		var req TeamRequest
 
+		// Parse body
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{
 				"error": "invalid request",
 			})
 		}
 
-		// Basic validation only (keep handler light)
-		if req.UserID == 0 || req.MatchID == 0 {
-			return c.Status(400).JSON(fiber.Map{
-				"error": "user_id and match_id required",
+		// ✅ Get user from JWT middleware
+		userIDVal := c.Locals("user_id")
+		if userIDVal == nil {
+			return c.Status(401).JSON(fiber.Map{
+				"error": "unauthorized",
 			})
 		}
 
-		if req.TeamName == "" {
-			req.TeamName = "My Team"
+		userID := userIDVal.(int)
+
+		// Basic validation
+		if req.MatchID == 0 {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "match_id required",
+			})
 		}
 
-		teamID, err := services.CreateTeam(
+		if len(req.Players) == 0 {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "players required",
+			})
+		}
+
+		// ✅ Call service (FIXED SIGNATURE)
+		err := services.CreateTeam(
 			db,
-			req.UserID,
+			userID,
 			req.MatchID,
-			req.TeamName,
 			req.Players,
 			req.Captain,
 			req.ViceCaptain,
@@ -55,7 +66,7 @@ func CreateTeam(db *sql.DB) fiber.Handler {
 		}
 
 		return c.JSON(fiber.Map{
-			"team_id": teamID,
+			"status": "team created",
 		})
 	}
 }
