@@ -2,9 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"strconv"
-
-	"gully-cricket/internal/services"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -12,7 +9,15 @@ import (
 func GetBalance(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		userID := c.Locals("user_id").(int)
+		// ✅ Get user from JWT
+		userIDVal := c.Locals("user_id")
+		if userIDVal == nil {
+			return c.Status(401).JSON(fiber.Map{
+				"error": "unauthorized",
+			})
+		}
+
+		userID := userIDVal.(int)
 
 		var balance float64
 
