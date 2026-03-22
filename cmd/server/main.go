@@ -167,7 +167,7 @@ protected.Post("/contest/join", handlers.JoinContest(db))
 protected.Post("/withdraw", handlers.RequestWithdrawal(db))
 
 // WALLET VIEW (optional public or move to protected later)
-protected.Get("/wallet/:user_id", handlers.GetBalance(db))
+protected.Get("/wallet", handlers.GetBalance(db))
 	//////////////////////////////////////////////////////////////
 	// SERVER START
 	//////////////////////////////////////////////////////////////
