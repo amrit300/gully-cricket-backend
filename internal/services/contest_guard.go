@@ -1,6 +1,8 @@
 package services
 
-import "database/sql"
+import ("database/sql"
+		"fmt"
+		)
 
 func CheckUserContestLimit(tx *sql.Tx, userID, contestID int, maxTeams int) error {
 
