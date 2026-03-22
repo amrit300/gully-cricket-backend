@@ -137,6 +137,8 @@ app.Get("/sync-matches", func(c *fiber.Ctx) error {
 		"status": "matches synced",
 	})
 })
+	// ADD this line with your other public GET routes:
+app.Get("/venue-stats/:matchId", handlers.GetVenueStatsHandler(db))
 
 // PLAYERS
 app.Get("/players/:match_id", handlers.GetPlayers(db))
