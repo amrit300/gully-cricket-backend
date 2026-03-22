@@ -13,7 +13,7 @@ import (
 \t"strings"
 \t"time"
 
-\t"github.com/golang-jwt/jwt/v5"
+\t"github.com/golang-jwt/jwt/v4"
 \t"github.com/gofiber/fiber/v2"
 )
 
@@ -61,7 +61,7 @@ func CreateUser(db *sql.DB) fiber.Handler {
 \t\t\treturn c.Status(400).JSON(fiber.Map{"error": "invalid telegram user"})
 \t\t}
 
-\t\t// ✅ FIX: column is telegram_id not telegram
+\t\t// ✅ FIX: telegram_id not telegram
 \t\tvar id int
 \t\terr = db.QueryRow(`
 \t\t\tINSERT INTO users (username, telegram_id)
@@ -76,10 +76,10 @@ func CreateUser(db *sql.DB) fiber.Handler {
 \t\t\treturn c.Status(500).JSON(fiber.Map{"error": err.Error()})
 \t\t}
 
-\t\t// ✅ FIX: generate and return JWT
+\t\t// ✅ FIX: return JWT token
 \t\tjwtSecret := os.Getenv("JWT_SECRET")
 \t\tif jwtSecret == "" {
-\t\t\tjwtSecret = "fallback-secret-change-in-prod"
+\t\t\tjwtSecret = "change-this-in-production"
 \t\t}
 
 \t\ttoken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
