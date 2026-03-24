@@ -3,28 +3,17 @@ package handlers
 import (
 	"database/sql"
 
+	"gully-cricket/internal/services"
+
 	"github.com/gofiber/fiber/v2"
 )
 
 func GetBalance(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		// ✅ Get user from JWT
-		userIDVal := c.Locals("user_id")
-		if userIDVal == nil {
-			return c.Status(401).JSON(fiber.Map{
-				"error": "unauthorized",
-			})
-		}
+		userID := c.Locals("user_id").(int)
 
-		userID := userIDVal.(int)
-
-		var balance float64
-
-		err := db.QueryRow(`
-			SELECT wallet_balance FROM users WHERE id=$1
-		`, userID).Scan(&balance)
-
+		balance, err := services.GetBalance(db, userID)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error": "failed to fetch balance",
