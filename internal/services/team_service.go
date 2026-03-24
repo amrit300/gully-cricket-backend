@@ -2,8 +2,6 @@ package services
 
 import (
 	"database/sql"
-	"fmt"
-
 	"gully-cricket/internal/validators"
 )
 
