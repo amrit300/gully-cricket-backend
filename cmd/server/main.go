@@ -5,17 +5,17 @@ import (
 	"log"
 	"os"
 	"time"
-	"fmt"
-	
 
 	"gully-cricket/internal/handlers"
 	"gully-cricket/internal/ingestion"
+	"gully-cricket/internal/middleware"
 	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
-	"gully-cricket/internal/middleware"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	_ "github.com/lib/pq"
 )
 
@@ -24,14 +24,22 @@ var db *sql.DB
 func main() {
 
 	//////////////////////////////////////////////////////////////
-	// DATABASE INIT
+	// 🔐 ENV VALIDATION (CRITICAL)
 	//////////////////////////////////////////////////////////////
 
-	databaseURL := os.Getenv("DATABASE_URL")
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		log.Fatal("JWT_SECRET not set")
+	}
 
+	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		log.Fatal("DATABASE_URL not set")
 	}
+
+	//////////////////////////////////////////////////////////////
+	// DATABASE INIT
+	//////////////////////////////////////////////////////////////
 
 	var err error
 
@@ -75,15 +83,16 @@ func main() {
 			time.Sleep(10 * time.Minute)
 		}
 	}()
+
 	go func() {
-	for {
-		workers.ProcessCompletedMatches(db)
-		time.Sleep(30 * time.Second)
-	}
-}()
+		for {
+			workers.ProcessCompletedMatches(db)
+			time.Sleep(30 * time.Second)
+		}
+	}()
 
 	//////////////////////////////////////////////////////////////
-	// INITIAL SYNC (CRITICAL FIX)
+	// INITIAL SYNC
 	//////////////////////////////////////////////////////////////
 
 	log.Println("🚀 Initial match sync...")
@@ -106,70 +115,81 @@ func main() {
 		},
 	})
 
+	// ✅ RECOVER (crash safety)
+	app.Use(recover.New())
+
+	// ✅ REQUEST LOGGER
+	app.Use(logger.New())
+
+	// 🔐 SECURE CORS (NO WILDCARD)
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept",
-		AllowMethods: "GET,POST,OPTIONS",
+		AllowOrigins: "https://your-frontend-domain.vercel.app",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowCredentials: true,
 	}))
 
 	//////////////////////////////////////////////////////////////
-	// ROUTES
+	// HEALTH CHECK (CI/CD)
 	//////////////////////////////////////////////////////////////
 
-	// 🌐 PUBLIC ROUTES (NO AUTH REQUIRED)
-
-app.Get("/", func(c *fiber.Ctx) error {
-	return c.SendString("Gully Cricket Backend Running")
-})
-
-// MATCHES
-app.Get("/matches", handlers.GetMatches(db))
-
-app.Get("/sync-matches", func(c *fiber.Ctx) error {
-	err := ingestion.SyncMatchesToDB(db)
-	if err != nil {
-		fmt.Println("SYNC ERROR:", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": err.Error(),
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"status": "ok",
 		})
-	}
-	return c.JSON(fiber.Map{
-		"status": "matches synced",
 	})
-})
-	// ADD this line with your other public GET routes:
-app.Get("/venue-stats/:matchId", handlers.GetVenueStatsHandler(db))
 
-// PLAYERS
-app.Get("/players/:match_id", handlers.GetPlayers(db))
-app.Get("/sync-players/:match_id/:external_id", handlers.SyncPlayers(db))
+	//////////////////////////////////////////////////////////////
+	// 🌐 PUBLIC ROUTES
+	//////////////////////////////////////////////////////////////
 
-// USER
-app.Post("/user/register", handlers.CreateUser(db))
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Gully Cricket Backend Running")
+	})
 
-// CONTEST (VIEW ONLY)
-app.Get("/contests/:match_id", handlers.GetContests(db))
+	// MATCHES
+	app.Get("/matches", handlers.GetMatches(db))
 
-// LEADERBOARD
-app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
+	app.Get("/sync-matches", func(c *fiber.Ctx) error {
+		err := ingestion.SyncMatchesToDB(db)
+		if err != nil {
+			log.Println("SYNC ERROR:", err)
+			return c.Status(500).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.JSON(fiber.Map{
+			"status": "matches synced",
+		})
+	})
 
-//////////////////////////////////////////////////////////////
-// 🔐 PROTECTED ROUTES (JWT REQUIRED)
-//////////////////////////////////////////////////////////////
+	// VENUE
+	app.Get("/venue-stats/:matchId", handlers.GetVenueStatsHandler(db))
 
-protected := app.Group("/api", middleware.JWTProtected())
+	// PLAYERS
+	app.Get("/players/:match_id", handlers.GetPlayers(db))
+	app.Get("/sync-players/:match_id/:external_id", handlers.SyncPlayers(db))
 
-// TEAM (CREATE)
-protected.Post("/teams", handlers.CreateTeam(db))
+	// USER
+	app.Post("/user/register", handlers.CreateUser(db))
 
-// JOIN CONTEST
-protected.Post("/contest/join", handlers.JoinContest(db))
+	// CONTEST VIEW
+	app.Get("/contests/:match_id", handlers.GetContests(db))
 
-// WITHDRAW
-protected.Post("/withdraw", handlers.RequestWithdrawal(db))
+	// LEADERBOARD
+	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
 
-// WALLET VIEW (optional public or move to protected later)
-protected.Get("/wallet", handlers.GetBalance(db))
+	//////////////////////////////////////////////////////////////
+	// 🔐 PROTECTED ROUTES (JWT)
+	//////////////////////////////////////////////////////////////
+
+	protected := app.Group("/api", middleware.JWTProtected())
+
+	protected.Post("/teams", handlers.CreateTeam(db))
+	protected.Post("/contest/join", handlers.JoinContest(db))
+	protected.Post("/withdraw", handlers.RequestWithdrawal(db))
+	protected.Get("/wallet", handlers.GetBalance(db))
+
 	//////////////////////////////////////////////////////////////
 	// SERVER START
 	//////////////////////////////////////////////////////////////
