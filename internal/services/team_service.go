@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+
 	"gully-cricket/internal/validators"
 )
 
@@ -15,15 +16,25 @@ func CreateTeam(
 	viceCaptainID int,
 ) (int, error) {
 
-	// validations
+	// VALIDATIONS
 	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
 		return 0, err
 	}
 
+	if err := validators.ValidateMatchStatus(db, matchID); err != nil {
+		return 0, err
+	}
+
+	if err := validators.ValidateTeamLimit(db, userID, matchID); err != nil {
+		return 0, err
+	}
+
+	// TRANSACTION
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
 	}
+	defer tx.Rollback()
 
 	var teamID int
 
@@ -34,25 +45,19 @@ func CreateTeam(
 	`, userID, matchID, teamName, captainID, viceCaptainID).Scan(&teamID)
 
 	if err != nil {
-		tx.Rollback()
 		return 0, err
 	}
 
 	for _, pid := range playerIDs {
-		_, err := tx.Exec(`
+		_, err = tx.Exec(`
 			INSERT INTO team_players (team_id, player_id)
 			VALUES ($1,$2)
 		`, teamID, pid)
 
 		if err != nil {
-			tx.Rollback()
 			return 0, err
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-
-	return teamID, nil
+	return teamID, tx.Commit()
 }
