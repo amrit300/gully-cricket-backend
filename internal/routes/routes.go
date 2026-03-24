@@ -5,6 +5,7 @@ import (
 
 	"gully-cricket/internal/handlers"
 	"gully-cricket/internal/middleware"
+	"gully-cricket/internal/ingestion"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -29,12 +30,18 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 
 	// MANUAL SYNC (ADMIN USE)
 	app.Get("/sync-matches", func(c *fiber.Ctx) error {
-		err := handlers.SyncMatchesHandler(db)(c)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		return nil
+
+	err := ingestion.SyncMatchesToDB(db)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status": "matches synced",
 	})
+})
 
 	// VENUE
 	app.Get("/venue-stats/:matchId", handlers.GetVenueStatsHandler(db))
