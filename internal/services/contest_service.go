@@ -3,7 +3,6 @@ package services
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 )
 
 func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
@@ -15,7 +14,72 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	defer tx.Rollback()
 
 	//////////////////////////////////////////////////////////////
-	// 1. DUPLICATE CHECK (SAFE EXISTS)
+	// 1. CHECK USER PLAN
+	//////////////////////////////////////////////////////////////
+
+	var maxTeams int
+
+	err = tx.QueryRow(`
+		SELECT max_teams_per_match
+		FROM users
+		WHERE id=$1
+	`, userID).Scan(&maxTeams)
+
+	if err != nil {
+		return err
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 2. COUNT CURRENT TEAMS IN THIS MATCH
+	//////////////////////////////////////////////////////////////
+
+	var currentTeams int
+
+	err = tx.QueryRow(`
+		SELECT COUNT(*)
+		FROM contest_entries ce
+		JOIN teams t ON t.id = ce.team_id
+		WHERE ce.user_id=$1 AND t.match_id = (
+			SELECT match_id FROM contests WHERE id=$2
+		)
+	`, userID, contestID).Scan(&currentTeams)
+
+	if err != nil {
+		return err
+	}
+
+	if currentTeams >= maxTeams {
+		return errors.New("team limit reached for your plan")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 3. LOCK CONTEST
+	//////////////////////////////////////////////////////////////
+
+	var filled, total int
+	var status string
+
+	err = tx.QueryRow(`
+		SELECT filled_spots, total_spots, status
+		FROM contests
+		WHERE id=$1
+		FOR UPDATE
+	`, contestID).Scan(&filled, &total, &status)
+
+	if err != nil {
+		return err
+	}
+
+	if status != "upcoming" {
+		return errors.New("contest locked")
+	}
+
+	if filled >= total {
+		return errors.New("contest full")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 4. PREVENT DUPLICATE
 	//////////////////////////////////////////////////////////////
 
 	var exists bool
@@ -31,47 +95,11 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	if exists {
-		return fmt.Errorf("already joined with this team")
+		return errors.New("already joined with this team")
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 2. LOCK CONTEST (CRITICAL)
-	//////////////////////////////////////////////////////////////
-
-	var entryFee float64
-	var filled, total int
-	var status string
-
-	err = tx.QueryRow(`
-		SELECT entry_fee, filled_spots, total_spots, status
-		FROM contests
-		WHERE id=$1
-		FOR UPDATE
-	`, contestID).Scan(&entryFee, &filled, &total, &status)
-
-	if err != nil {
-		return err
-	}
-
-	if status != "upcoming" {
-		return errors.New("contest locked")
-	}
-
-	if filled >= total {
-		return errors.New("contest full")
-	}
-
-	//////////////////////////////////////////////////////////////
-	// 3. WALLET DEDUCTION (ATOMIC)
-	//////////////////////////////////////////////////////////////
-
-	err = DeductBalance(tx, userID, entryFee)
-	if err != nil {
-		return err
-	}
-
-	//////////////////////////////////////////////////////////////
-	// 4. INSERT ENTRY
+	// 5. INSERT ENTRY (NO MONEY INVOLVED)
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.Exec(`
@@ -84,10 +112,10 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 5. UPDATE SPOTS (SAFE INCREMENT)
+	// 6. UPDATE SPOTS
 	//////////////////////////////////////////////////////////////
 
-	res, err := tx.Exec(`
+	_, err = tx.Exec(`
 		UPDATE contests
 		SET filled_spots = filled_spots + 1
 		WHERE id=$1
@@ -97,13 +125,8 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 		return err
 	}
 
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		return errors.New("failed to update contest spots")
-	}
-
 	//////////////////////////////////////////////////////////////
-	// 6. LEADERBOARD ENTRY (IMPORTANT)
+	// 7. LEADERBOARD
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.Exec(`
@@ -114,10 +137,6 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	if err != nil {
 		return err
 	}
-
-	//////////////////////////////////////////////////////////////
-	// 7. COMMIT
-	//////////////////////////////////////////////////////////////
 
 	return tx.Commit()
 }
