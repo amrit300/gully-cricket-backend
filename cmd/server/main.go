@@ -11,7 +11,7 @@ import (
 	"gully-cricket/internal/middleware"
 	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
-
+	"gully-cricket/internal/routes"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -139,57 +139,12 @@ func main() {
 		})
 	})
 
-	//////////////////////////////////////////////////////////////
-	// 🌐 PUBLIC ROUTES
-	//////////////////////////////////////////////////////////////
+	/////////////
+// 🌐  ROUTES //
+	///////////
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Gully Cricket Backend Running")
-	})
-
-	// MATCHES
-	app.Get("/matches", handlers.GetMatches(db))
-
-	app.Get("/sync-matches", func(c *fiber.Ctx) error {
-		err := ingestion.SyncMatchesToDB(db)
-		if err != nil {
-			log.Println("SYNC ERROR:", err)
-			return c.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		}
-		return c.JSON(fiber.Map{
-			"status": "matches synced",
-		})
-	})
-
-	// VENUE
-	app.Get("/venue-stats/:matchId", handlers.GetVenueStatsHandler(db))
-
-	// PLAYERS
-	app.Get("/players/:match_id", handlers.GetPlayers(db))
-	app.Get("/sync-players/:match_id/:external_id", handlers.SyncPlayers(db))
-
-	// USER
-	app.Post("/user/register", handlers.CreateUser(db))
-
-	// CONTEST VIEW
-	app.Get("/contests/:match_id", handlers.GetContests(db))
-
-	// LEADERBOARD
-	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
-
-	//////////////////////////////////////////////////////////////
-	// 🔐 PROTECTED ROUTES (JWT)
-	//////////////////////////////////////////////////////////////
-
-	protected := app.Group("/api", middleware.JWTProtected())
-
-	protected.Post("/teams", handlers.CreateTeam(db))
-	protected.Post("/contest/join", handlers.JoinContest(db))
-	protected.Post("/withdraw", handlers.RequestWithdrawal(db))
-	protected.Get("/wallet", handlers.GetBalance(db))
-
+	
+	routes.RegisterRoutes(app, db)
 	//////////////////////////////////////////////////////////////
 	// SERVER START
 	//////////////////////////////////////////////////////////////
