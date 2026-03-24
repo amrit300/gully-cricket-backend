@@ -3,15 +3,18 @@ package handlers
 import (
 	"database/sql"
 
-	"github.com/gofiber/fiber/v2"
 	"gully-cricket/internal/services"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 type TeamRequest struct {
-	MatchID     int   `json:"match_id"`
-	Captain     int   `json:"captain"`
-	ViceCaptain int   `json:"vice_captain"`
-	Players     []int `json:"players"`
+	UserID      int    `json:"user_id"`
+	MatchID     int    `json:"match_id"`
+	TeamName    string `json:"team_name"`
+	Captain     int    `json:"captain"`
+	ViceCaptain int    `json:"vice_captain"`
+	Players     []int  `json:"players"`
 }
 
 func CreateTeam(db *sql.DB) fiber.Handler {
@@ -19,41 +22,27 @@ func CreateTeam(db *sql.DB) fiber.Handler {
 
 		var req TeamRequest
 
-		// Parse body
+		// Parse
 		if err := c.BodyParser(&req); err != nil {
 			return c.Status(400).JSON(fiber.Map{
 				"error": "invalid request",
 			})
 		}
 
-		// ✅ Get user from JWT middleware
-		userIDVal := c.Locals("user_id")
-		if userIDVal == nil {
-			return c.Status(401).JSON(fiber.Map{
-				"error": "unauthorized",
-			})
+		// 🔐 TRUST JWT OVER BODY
+		userID := c.Locals("user_id").(int)
+
+		// Default name
+		if req.TeamName == "" {
+			req.TeamName = "My Team"
 		}
 
-		userID := userIDVal.(int)
-
-		// Basic validation
-		if req.MatchID == 0 {
-			return c.Status(400).JSON(fiber.Map{
-				"error": "match_id required",
-			})
-		}
-
-		if len(req.Players) == 0 {
-			return c.Status(400).JSON(fiber.Map{
-				"error": "players required",
-			})
-		}
-
-		// ✅ Call service (FIXED SIGNATURE)
-		err := services.CreateTeam(
+		// Call service
+		teamID, err := services.CreateTeam(
 			db,
 			userID,
 			req.MatchID,
+			req.TeamName,
 			req.Players,
 			req.Captain,
 			req.ViceCaptain,
@@ -66,7 +55,7 @@ func CreateTeam(db *sql.DB) fiber.Handler {
 		}
 
 		return c.JSON(fiber.Map{
-			"status": "team created",
+			"team_id": teamID,
 		})
 	}
 }
