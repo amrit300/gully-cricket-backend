@@ -7,7 +7,7 @@ import (
 )
 
 //////////////////////////////////////////////////////////////
-// 📊 GET SUBSCRIPTION BALANCE
+// 📊 GET BALANCE
 //////////////////////////////////////////////////////////////
 
 func GetBalance(db *sql.DB, userID int) (float64, error) {
@@ -26,7 +26,7 @@ func GetBalance(db *sql.DB, userID int) (float64, error) {
 }
 
 //////////////////////////////////////////////////////////////
-// ➖ SUBSCRIPTION DEDUCTION (MONTHLY)
+// ➖ SUBSCRIPTION DEDUCTION
 //////////////////////////////////////////////////////////////
 
 func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
@@ -45,7 +45,7 @@ func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
 	}
 
 	if balance < amount {
-		return errors.New("subscription balance insufficient")
+		return errors.New("insufficient balance")
 	}
 
 	_, err = tx.Exec(`
@@ -67,10 +67,14 @@ func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
 }
 
 //////////////////////////////////////////////////////////////
-// ➕ ADD FUNDS (USER DEPOSIT)
+// ➕ ADD FUNDS (FIXED)
 //////////////////////////////////////////////////////////////
 
-func CreditBalance(tx *sql.Tx, userID int, amount float64) error {
+func AddFunds(tx *sql.Tx, userID int, amount float64, source string) error {
+
+	if amount <= 0 {
+		return errors.New("invalid amount")
+	}
 
 	_, err := tx.Exec(`
 		UPDATE users
@@ -83,9 +87,9 @@ func CreditBalance(tx *sql.Tx, userID int, amount float64) error {
 	}
 
 	_, err = tx.Exec(`
-		INSERT INTO wallet_transactions (user_id, amount, type, created_at)
-		VALUES ($1,$2,'credit',$3)
-	`, userID, amount, time.Now())
+		INSERT INTO wallet_transactions (user_id, amount, type, source, created_at)
+		VALUES ($1,$2,'credit',$3,$4)
+	`, userID, amount, source, time.Now())
 
 	return err
 }
