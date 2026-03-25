@@ -58,6 +58,9 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 
 	// LEADERBOARD
 	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
+	
+	//Wallet
+	api.Post("/wallet/add", handlers.AddFundsHandler(db))
 
 	//////////////////////////////////////////////////////////////
 	// 🔐 PROTECTED ROUTES (JWT + RATE LIMIT)
