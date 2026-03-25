@@ -62,24 +62,24 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	//Wallet
 	api.Post("/wallet/add", handlers.AddFundsHandler(db))
 
-	//////////////////////////////////////////////////////////////
-	// 🔐 PROTECTED ROUTES (JWT + RATE LIMIT)
-	//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+// 🔐 PROTECTED ROUTES
+//////////////////////////////////////////////////////////////
 
-	api := app.Group("/api",
-		middleware.JWTProtected(),
-		middleware.RateLimit(),
-	)
+api := app.Group("/api",
+	middleware.JWTProtected(),
+	middleware.RateLimit(),
+)
 
-	// TEAM
-	api.Post("/teams", handlers.CreateTeam(db))
+// TEAM
+api.Post("/teams", handlers.CreateTeam(db))
 
-	// JOIN CONTEST
-	api.Post("/contest/join", handlers.JoinContest(db))
+// JOIN
+api.Post("/contest/join", handlers.JoinContest(db))
 
-	// WITHDRAW
-	api.Post("/withdraw", handlers.RequestWithdrawal(db))
+// WALLET
+api.Get("/wallet", handlers.GetBalance(db))
+api.Post("/wallet/add", handlers.AddFundsHandler(db))
 
-	// WALLET
-	api.Get("/wallet", handlers.GetBalance(db))
-}
+// WITHDRAW
+api.Post("/withdraw", handlers.RequestWithdrawal(db))
