@@ -2,7 +2,8 @@ package services
 
 import (
 	"database/sql"
-	"fmt"
+	"errors"
+	"time"
 )
 
 func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
@@ -11,57 +12,48 @@ func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	// Deduct balance safely
-	err = DeductBalance(tx, userID, amount)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
+	//////////////////////////////////////////////////////////////
+	// 1. CHECK BALANCE (SUBSCRIPTION WALLET)
+	//////////////////////////////////////////////////////////////
 
-	// Insert withdrawal request
-	_, err = tx.Exec(`
-		INSERT INTO withdrawals (user_id, amount, status)
-		VALUES ($1,$2,'pending')
-	`, userID, amount)
-
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	return tx.Commit()
-}
-
-func ProcessWithdrawal(db *sql.DB, withdrawalID int) error {
-
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-
-	var userID int
-	var amount float64
+	var balance float64
 
 	err = tx.QueryRow(`
-		SELECT user_id, amount
-		FROM withdrawals
-		WHERE id=$1 AND status='pending'
+		SELECT subscription_balance
+		FROM users
+		WHERE id=$1
 		FOR UPDATE
-	`, withdrawalID).Scan(&userID, &amount)
+	`, userID).Scan(&balance)
 
 	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("invalid withdrawal")
+		return err
 	}
 
+	if balance < amount {
+		return errors.New("insufficient balance")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 2. DEDUCT BALANCE
+	//////////////////////////////////////////////////////////////
+
+	err = DeductSubscription(tx, userID, amount)
+	if err != nil {
+		return err
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 3. CREATE WITHDRAWAL REQUEST
+	//////////////////////////////////////////////////////////////
+
 	_, err = tx.Exec(`
-		UPDATE withdrawals SET status='completed'
-		WHERE id=$1
-	`, withdrawalID)
+		INSERT INTO withdrawals (user_id, amount, status, created_at)
+		VALUES ($1,$2,'pending',$3)
+	`, userID, amount, time.Now())
 
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 
