@@ -7,6 +7,10 @@ import (
 
 func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 
+	//Defensive check
+	if userID <= 0 || teamID <= 0 || contestID <= 0 {
+		return errors.New("invalid input")
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
