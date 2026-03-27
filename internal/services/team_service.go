@@ -16,6 +16,11 @@ func CreateTeam(
 	viceCaptainID int,
 ) (int, error) {
 
+	// Defensive Check 
+	if userID <= 0 || matchID <= 0 {
+	return 0, errors.New("invalid input")
+}
+
 	// VALIDATIONS
 	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
 		return 0, err
