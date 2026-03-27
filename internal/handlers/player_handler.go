@@ -54,13 +54,18 @@ func SyncPlayers(db *sql.DB) fiber.Handler {
 func GetPlayers(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		matchID := c.Params("match_id")
+		matchIDStr := c.Params("match_id")
 
-		rows, err := db.Query(`
-			SELECT id, name, team, role, credit, fantasy_points
-			FROM players
-			WHERE match_id = $1
-		`, matchID)
+matchID, err := strconv.Atoi(matchIDStr)
+if err != nil {
+	return c.Status(400).JSON(fiber.Map{"error": "invalid match id"})
+}
+
+rows, err := db.Query(`
+	SELECT ...
+	FROM players
+	WHERE match_id = $1
+`, matchID)
 
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
