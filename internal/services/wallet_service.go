@@ -12,6 +12,9 @@ import (
 
 func GetBalance(db *sql.DB, userID int) (float64, error) {
 
+	if amount <= 0 {
+	return errors.New("invalid amount")
+}
 	var balance float64
 
 	err := db.QueryRow(`
@@ -30,6 +33,10 @@ func GetBalance(db *sql.DB, userID int) (float64, error) {
 //////////////////////////////////////////////////////////////
 
 func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
+	
+	if amount <= 0 {
+	return errors.New("invalid amount")
+}
 
 	var balance float64
 
