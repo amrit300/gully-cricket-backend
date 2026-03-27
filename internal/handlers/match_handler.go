@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"strings"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -29,8 +30,9 @@ func GetMatches(db *sql.DB) fiber.Handler {
 			var teamA, teamB, status, venue string
 			var startTime string
 
-			_ = rows.Scan(&teamA, &teamB, &startTime, &status, &venue)
-
+			if err := rows.Scan(&teamA, &teamB, &startTime, &status, &venue); err != nil {
+	return c.Status(500).JSON(fiber.Map{"error": "failed to read matches"})
+}
 			match := fiber.Map{
 				"teamA":     teamA,
 				"teamB":     teamB,
@@ -50,6 +52,9 @@ func GetMatches(db *sql.DB) fiber.Handler {
 		if len(live) == 0 && len(upcoming) == 0 {
 			live = recent
 		}
+		if err := rows.Err(); err != nil {
+	return c.Status(500).JSON(fiber.Map{"error": "failed to process matches"})
+}
 
 		return c.JSON(fiber.Map{
 			"live":     live,
