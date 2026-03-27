@@ -71,8 +71,14 @@ func GetLeaderboard(db *sql.DB) fiber.Handler {
 		}
 
 		if entries == nil {
-			entries = []Entry{}
-		}
+	entries = []Entry{}
+}
+
+if err := rows.Err(); err != nil {
+	return c.Status(500).JSON(fiber.Map{
+		"error": "failed to read leaderboard",
+	})
+}
 
 		return c.JSON(entries)
 	}
