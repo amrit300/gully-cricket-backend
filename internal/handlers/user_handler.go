@@ -26,6 +26,9 @@ type RegisterRequest struct {
 
 func CreateUser(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		if len(req.Username) > 50 {
+	return c.Status(400).JSON(fiber.Map{"error": "username too long"})
+}
 
 		var req RegisterRequest
 		if err := c.BodyParser(&req); err != nil {
