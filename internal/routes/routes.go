@@ -60,7 +60,7 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	app.Get("/leaderboard/:contest_id", handlers.GetLeaderboard(db))
 	
 	//Wallet
-	api.Post("/wallet/add", handlers.AddFundsHandler(db))
+	app.Post("/webhook/nowpayments", handlers.NowPaymentsWebhook(db))
 
 //////////////////////////////////////////////////////////////
 // 🔐 PROTECTED ROUTES
