@@ -2,25 +2,49 @@ package services
 
 import (
 	"database/sql"
+	"errors"
 	"log"
+	"time"
 )
 
-func ProcessContestPayout(db *sql.DB, contestID int) {
+func ProcessContestPayout(db *sql.DB, contestID int) error {
 
 	tx, err := db.Begin()
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
+	defer tx.Rollback()
+
+	//////////////////////////////////////////////////////////////
+	// 1. CHECK IF ALREADY PROCESSED (IDEMPOTENCY)
+	//////////////////////////////////////////////////////////////
+
+	var status string
+	err = tx.QueryRow(`
+		SELECT status FROM contests WHERE id=$1
+		FOR UPDATE
+	`, contestID).Scan(&status)
+
+	if err != nil {
+		return err
+	}
+
+	if status == "completed" {
+		return errors.New("payout already processed")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 2. FETCH LEADERBOARD
+	//////////////////////////////////////////////////////////////
 
 	rows, err := tx.Query(`
 		SELECT team_id, rank
 		FROM leaderboard
 		WHERE contest_id = $1
-	`)
+	`, contestID)
+
 	if err != nil {
-		tx.Rollback()
-		return
+		return err
 	}
 	defer rows.Close()
 
@@ -29,7 +53,13 @@ func ProcessContestPayout(db *sql.DB, contestID int) {
 		var teamID int
 		var rank int
 
-		rows.Scan(&teamID, &rank)
+		if err := rows.Scan(&teamID, &rank); err != nil {
+			continue
+		}
+
+		//////////////////////////////////////////////////////////////
+		// 3. GET PRIZE
+		//////////////////////////////////////////////////////////////
 
 		var amount float64
 
@@ -45,7 +75,10 @@ func ProcessContestPayout(db *sql.DB, contestID int) {
 			continue
 		}
 
-		// update winnings
+		//////////////////////////////////////////////////////////////
+		// 4. UPDATE LEADERBOARD
+		//////////////////////////////////////////////////////////////
+
 		_, err = tx.Exec(`
 			UPDATE leaderboard
 			SET winnings = $1
@@ -53,29 +86,74 @@ func ProcessContestPayout(db *sql.DB, contestID int) {
 		`, amount, contestID, teamID)
 
 		if err != nil {
-			tx.Rollback()
-			return
+			return err
 		}
 
-		// credit wallet
-		_, err = tx.Exec(`
-			UPDATE users u
-			SET wallet_balance = wallet_balance + $1
-			FROM teams t
-			WHERE t.id=$2 AND u.id=t.user_id
-		`, amount, teamID)
+		//////////////////////////////////////////////////////////////
+		// 5. GET USER ID
+		//////////////////////////////////////////////////////////////
+
+		var userID int
+		err = tx.QueryRow(`
+			SELECT user_id FROM teams WHERE id=$1
+		`, teamID).Scan(&userID)
 
 		if err != nil {
-			tx.Rollback()
-			return
+			continue
+		}
+
+		//////////////////////////////////////////////////////////////
+		// 6. CREDIT WALLET (SAFE — LEDGER BASED)
+		//////////////////////////////////////////////////////////////
+
+		_, err = tx.Exec(`
+			UPDATE users
+			SET subscription_balance = subscription_balance + $1
+			WHERE id=$2
+		`, amount, userID)
+
+		if err != nil {
+			return err
+		}
+
+		//////////////////////////////////////////////////////////////
+		// 7. LEDGER ENTRY (CRITICAL)
+		//////////////////////////////////////////////////////////////
+
+		_, err = tx.Exec(`
+			INSERT INTO wallet_transactions (user_id, amount, type, source, created_at)
+			VALUES ($1,$2,'winnings',$3,$4)
+		`, userID, amount, "contest_"+string(rune(contestID)), time.Now())
+
+		if err != nil {
+			return err
 		}
 	}
 
-	// mark contest completed
-	tx.Exec(`
+	//////////////////////////////////////////////////////////////
+	// 8. CHECK LOOP ERROR
+	//////////////////////////////////////////////////////////////
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 9. MARK COMPLETED
+	//////////////////////////////////////////////////////////////
+
+	_, err = tx.Exec(`
 		UPDATE contests SET status='completed'
 		WHERE id=$1
 	`, contestID)
 
-	tx.Commit()
+	if err != nil {
+		return err
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 10. COMMIT
+	//////////////////////////////////////////////////////////////
+
+	return tx.Commit()
 }
