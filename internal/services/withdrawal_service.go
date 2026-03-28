@@ -1,12 +1,29 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"time"
 )
 
 func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 0. INPUT VALIDATION
+	//////////////////////////////////////////////////////////////
+
+	if userID <= 0 {
+		return errors.New("invalid user")
+	}
+
+	if amount <= 0 {
+		return errors.New("invalid amount")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 1. BEGIN TRANSACTION
+	//////////////////////////////////////////////////////////////
 
 	tx, err := db.Begin()
 	if err != nil {
@@ -15,12 +32,19 @@ func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
 	defer tx.Rollback()
 
 	//////////////////////////////////////////////////////////////
-	// 1. CHECK BALANCE (SUBSCRIPTION WALLET)
+	// ⏱️ 2. CONTEXT TIMEOUT (CRITICAL)
+	//////////////////////////////////////////////////////////////
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	//////////////////////////////////////////////////////////////
+	// 🔒 3. LOCK USER ROW + CHECK BALANCE
 	//////////////////////////////////////////////////////////////
 
 	var balance float64
 
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT subscription_balance
 		FROM users
 		WHERE id=$1
@@ -36,7 +60,7 @@ func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 2. DEDUCT BALANCE
+	// ➖ 4. DEDUCT BALANCE (LEDGER SAFE)
 	//////////////////////////////////////////////////////////////
 
 	err = DeductSubscription(tx, userID, amount)
@@ -45,10 +69,10 @@ func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 3. CREATE WITHDRAWAL REQUEST
+	// 🧾 5. CREATE WITHDRAWAL REQUEST
 	//////////////////////////////////////////////////////////////
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO withdrawals (user_id, amount, status, created_at)
 		VALUES ($1,$2,'pending',$3)
 	`, userID, amount, time.Now())
@@ -56,6 +80,10 @@ func RequestWithdrawal(db *sql.DB, userID int, amount float64) error {
 	if err != nil {
 		return err
 	}
+
+	//////////////////////////////////////////////////////////////
+	// ✅ 6. COMMIT
+	//////////////////////////////////////////////////////////////
 
 	return tx.Commit()
 }
