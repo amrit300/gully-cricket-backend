@@ -5,7 +5,10 @@ import (
 	"log"
 	"os"
 	"time"
-
+	"context"
+	"os/signal"
+	"syscall"
+	
 	"gully-cricket/internal/ingestion"
 	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
@@ -25,15 +28,7 @@ func main() {
 	// 🔐 ENV VALIDATION (CRITICAL)
 	//////////////////////////////////////////////////////////////
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET not set")
-	}
-
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		log.Fatal("DATABASE_URL not set")
-	}
+	
 
 	//////////////////////////////////////////////////////////////
 	// DATABASE INIT
@@ -55,6 +50,21 @@ func main() {
 	}
 
 	log.Println("✅ Database connected")
+	
+	requiredEnv := []string{
+	"DATABASE_URL",
+	"JWT_SECRET",
+	"NOWPAYMENTS_API_KEY",
+	"NOWPAYMENTS_IPN_SECRET",
+}
+
+for _, v := range requiredEnv {
+	if os.Getenv(v) == "" {
+		log.Fatalf("❌ Missing required env: %s", v)
+	}
+}
+
+log.Println("✅ Environment validated")
 
 	//////////////////////////////////////////////////////////////
 	// BACKGROUND WORKERS
@@ -143,10 +153,32 @@ func main() {
 
 	
 	routes.RegisterRoutes(app, db)
-	//////////////////////////////////////////////////////////////
-	// SERVER START
-	//////////////////////////////////////////////////////////////
 
+//////////////////////////////////////////////////////////////
+// 🛑 GRACEFUL SHUTDOWN 
+//////////////////////////////////////////////////////////////
+
+go func() {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+
+	<-sig
+	log.Println("🛑 Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(ctx); err != nil {
+		log.Println("Shutdown error:", err)
+	}
+
+	os.Exit(0)
+}()
+
+//////////////////////////////////////////////////////////////
+// SERVER START
+//////////////////////////////////////////////////////////////
+	
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
