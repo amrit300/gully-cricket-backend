@@ -1,31 +1,39 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"time"
 )
 
+//////////////////////////////////////////////////////////////
+// 🚀 WORKER (IMPROVED — CONTROLLED LOOP)
+//////////////////////////////////////////////////////////////
+
 func StartLeaderboardWorker(db *sql.DB) {
 
-	for {
-		time.Sleep(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 
+	for range ticker.C {
 		processLeaderboard(db)
 	}
 }
 
 //////////////////////////////////////////////////////////////
-// CORE ENGINE
+// 🔥 CORE ENGINE
 //////////////////////////////////////////////////////////////
 
 func processLeaderboard(db *sql.DB) {
 
-	rows, err := db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, `
 		SELECT DISTINCT contest_id, match_id
 		FROM leaderboard
 	`)
-
 	if err != nil {
 		log.Println("worker query error:", err)
 		return
@@ -41,10 +49,50 @@ func processLeaderboard(db *sql.DB) {
 			continue
 		}
 
-		updateTeamPoints(db, matchID)
-		syncLeaderboardPoints(db, contestID)
-		updateDenseRanks(db, contestID)
-		assignWinnings(db, contestID)
+		// 🔐 isolate each contest execution
+		runContestPipeline(db, contestID, matchID)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Println("rows error:", err)
+	}
+}
+
+//////////////////////////////////////////////////////////////
+// 🔐 TRANSACTIONAL PIPELINE (CRITICAL)
+//////////////////////////////////////////////////////////////
+
+func runContestPipeline(db *sql.DB, contestID, matchID int) {
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println("tx begin error:", err)
+		return
+	}
+	defer tx.Rollback()
+
+	if err := updateTeamPoints(tx, matchID); err != nil {
+		log.Println("team points error:", err)
+		return
+	}
+
+	if err := syncLeaderboardPoints(tx, contestID); err != nil {
+		log.Println("sync error:", err)
+		return
+	}
+
+	if err := updateDenseRanks(tx, contestID); err != nil {
+		log.Println("rank error:", err)
+		return
+	}
+
+	if err := assignWinnings(tx, contestID); err != nil {
+		log.Println("winnings error:", err)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Println("commit error:", err)
 	}
 }
 
@@ -52,9 +100,12 @@ func processLeaderboard(db *sql.DB) {
 // STEP 1 → TEAM POINTS
 //////////////////////////////////////////////////////////////
 
-func updateTeamPoints(db *sql.DB, matchID int) {
+func updateTeamPoints(tx *sql.Tx, matchID int) error {
 
-	_, err := db.Exec(`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := tx.ExecContext(ctx, `
 		UPDATE teams t
 		SET total_points = sub.points
 		FROM (
@@ -77,18 +128,19 @@ func updateTeamPoints(db *sql.DB, matchID int) {
 		AND t.match_id = $1
 	`, matchID)
 
-	if err != nil {
-		log.Println("team points error:", err)
-	}
+	return err
 }
 
 //////////////////////////////////////////////////////////////
 // STEP 2 → SYNC LEADERBOARD
 //////////////////////////////////////////////////////////////
 
-func syncLeaderboardPoints(db *sql.DB, contestID int) {
+func syncLeaderboardPoints(tx *sql.Tx, contestID int) error {
 
-	_, err := db.Exec(`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := tx.ExecContext(ctx, `
 		UPDATE leaderboard l
 		SET points = t.total_points
 		FROM teams t
@@ -96,18 +148,19 @@ func syncLeaderboardPoints(db *sql.DB, contestID int) {
 		AND l.contest_id = $1
 	`, contestID)
 
-	if err != nil {
-		log.Println("leaderboard sync error:", err)
-	}
+	return err
 }
 
 //////////////////////////////////////////////////////////////
-// STEP 3 → DENSE RANK (FIXED)
+// STEP 3 → DENSE RANK
 //////////////////////////////////////////////////////////////
 
-func updateDenseRanks(db *sql.DB, contestID int) {
+func updateDenseRanks(tx *sql.Tx, contestID int) error {
 
-	_, err := db.Exec(`
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := tx.ExecContext(ctx, `
 		UPDATE leaderboard l
 		SET rank = r.rank
 		FROM (
@@ -121,20 +174,25 @@ func updateDenseRanks(db *sql.DB, contestID int) {
 		AND l.contest_id = $1
 	`, contestID)
 
-	if err != nil {
-		log.Println("rank update error:", err)
-	}
+	return err
 }
-func assignWinnings(db *sql.DB, contestID int) {
 
-	rows, err := db.Query(`
+//////////////////////////////////////////////////////////////
+// STEP 4 → ASSIGN WINNINGS (SAFE + IDEMPOTENT)
+//////////////////////////////////////////////////////////////
+
+func assignWinnings(tx *sql.Tx, contestID int) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := tx.QueryContext(ctx, `
 		SELECT team_id, rank
 		FROM leaderboard
 		WHERE contest_id = $1
-	`, contestID)
-
+	`)
 	if err != nil {
-		return
+		return err
 	}
 	defer rows.Close()
 
@@ -149,7 +207,7 @@ func assignWinnings(db *sql.DB, contestID int) {
 
 		var amount float64
 
-		err := db.QueryRow(`
+		err := tx.QueryRowContext(ctx, `
 			SELECT amount
 			FROM contest_prizes
 			WHERE contest_id=$1
@@ -161,10 +219,19 @@ func assignWinnings(db *sql.DB, contestID int) {
 			continue
 		}
 
-		db.Exec(`
+		// 🔐 update only if changed (prevents unnecessary writes)
+		_, err = tx.ExecContext(ctx, `
 			UPDATE leaderboard
 			SET winnings = $1
-			WHERE contest_id=$2 AND team_id=$3
+			WHERE contest_id=$2 
+			AND team_id=$3
+			AND winnings IS DISTINCT FROM $1
 		`, amount, contestID, teamID)
+
+		if err != nil {
+			return err
+		}
 	}
+
+	return rows.Err()
 }
