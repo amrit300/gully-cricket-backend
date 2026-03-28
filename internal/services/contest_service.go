@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+	"strconv"
+	"gully-cricket/internal/cache"
 )
 
 //////////////////////////////////////////////////////////////
@@ -186,8 +188,19 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+	return err
 }
+
+// 🔥 CACHE INVALIDATION (SYNC — REQUIRED)
+cache.Rdb.Del(cache.Ctx, "contests:"+strconv.Itoa(matchID))
+
+// 🔥 OPTIONAL ASYNC (LEADERBOARD)
+go func() {
+	cache.Rdb.Del(cache.Ctx, "leaderboard:"+strconv.Itoa(contestID))
+}()
+
+return nil
 
 //////////////////////////////////////////////////////////////
 // RETRY WRAPPER
