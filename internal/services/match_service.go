@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
@@ -12,19 +13,43 @@ import (
 
 func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 
+	cacheKey := "matches:v1"
+
 	//////////////////////////////////////////////////////////////
-	// 1. REDIS CACHE
+	// 1. CACHE HIT (FAST PATH)
 	//////////////////////////////////////////////////////////////
 
-	cached, err := cache.Rdb.Get(cache.Ctx, "matches:v1").Result()
+	cached, err := cache.Rdb.Get(cache.Ctx, cacheKey).Result()
 	if err == nil {
 		var data map[string]interface{}
-		json.Unmarshal([]byte(cached), &data)
-		return data, nil
+		if json.Unmarshal([]byte(cached), &data) == nil {
+			return data, nil
+		}
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 2. DB QUERY (SAFE WITH TIMEOUT)
+	// 2. CACHE STAMPEDE PROTECTION (LIGHT LOCK)
+	//////////////////////////////////////////////////////////////
+
+	lockKey := cacheKey + ":lock"
+
+	locked, _ := cache.Rdb.SetNX(cache.Ctx, lockKey, "1", 5*time.Second).Result()
+
+	// If another request is building cache → wait briefly & retry cache
+	if !locked {
+		time.Sleep(100 * time.Millisecond)
+
+		cached, err := cache.Rdb.Get(cache.Ctx, cacheKey).Result()
+		if err == nil {
+			var data map[string]interface{}
+			if json.Unmarshal([]byte(cached), &data) == nil {
+				return data, nil
+			}
+		}
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 3. DB QUERY (SAFE WITH TIMEOUT)
 	//////////////////////////////////////////////////////////////
 
 	ctx, cancel := dbutil.Ctx()
@@ -51,7 +76,8 @@ func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 		var startTime string
 
 		if err := rows.Scan(&teamA, &teamB, &startTime, &status, &venue); err != nil {
-			return nil, err
+			log.Println("SCAN ERROR:", err)
+			continue
 		}
 
 		match := map[string]interface{}{
@@ -75,7 +101,10 @@ func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	// fallback logic
+	//////////////////////////////////////////////////////////////
+	// 4. FALLBACK LOGIC (SAFE)
+	//////////////////////////////////////////////////////////////
+
 	if len(live) == 0 && len(upcoming) == 0 {
 		live = recent
 	}
@@ -87,11 +116,16 @@ func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 3. CACHE RESULT
+	// 5. CACHE STORE (WITH TTL)
 	//////////////////////////////////////////////////////////////
 
-	bytes, _ := json.Marshal(result)
-	cache.Rdb.Set(cache.Ctx, "matches:v1", bytes, 20*time.Second)
+	bytes, err := json.Marshal(result)
+	if err == nil {
+		cache.Rdb.Set(cache.Ctx, cacheKey, bytes, 20*time.Second)
+	}
+
+	// release lock
+	cache.Rdb.Del(cache.Ctx, lockKey)
 
 	return result, nil
 }
