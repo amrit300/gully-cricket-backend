@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	dbutil "gully-cricket/internal/db"
 	"gully-cricket/internal/providers"
 )
 
@@ -52,8 +53,10 @@ func SyncMatchesToDB(db *sql.DB) error {
 		}
 
 		// ✅ INSERT
-
-		_, err = db.Exec(`
+		ctx, cancel := dbutil.Ctx()
+		defer cancel()
+		
+		_, err = db.ExecContext(ctx, `
 			INSERT INTO matches_master
 			(external_id, team_a, team_b, venue, start_time, status)
 			VALUES ($1,$2,$3,$4,$5,$6)
