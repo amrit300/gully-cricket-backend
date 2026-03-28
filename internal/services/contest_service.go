@@ -14,17 +14,9 @@ import (
 
 func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 
-	//////////////////////////////////////////////////////////////
-	// 0. DEFENSIVE VALIDATION
-	//////////////////////////////////////////////////////////////
-
 	if userID <= 0 || teamID <= 0 || contestID <= 0 {
 		return errors.New("invalid input")
 	}
-
-	//////////////////////////////////////////////////////////////
-	// CONTEXT (GLOBAL FOR THIS TX)
-	//////////////////////////////////////////////////////////////
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -36,31 +28,28 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	defer tx.Rollback()
 
 	//////////////////////////////////////////////////////////////
-	// 🔐 0.5 TEAM OWNERSHIP VALIDATION (CRITICAL SECURITY)
+	// TEAM VALIDATION
 	//////////////////////////////////////////////////////////////
 
 	var ownerID int
+	var teamMatchID int
 
 	err = tx.QueryRowContext(ctx, `
 		SELECT user_id, match_id
 		FROM teams
 		WHERE id=$1
-	`, teamID).Scan(&ownerID)
+	`, teamID).Scan(&ownerID, &teamMatchID)
 
 	if err != nil {
 		return err
 	}
 
 	if ownerID != userID {
-	return errors.New("unauthorized team")
-}
-
-if teamMatchID != matchID {
-	return errors.New("team does not belong to this match")
-}
+		return errors.New("unauthorized team")
+	}
 
 	//////////////////////////////////////////////////////////////
-	// 1. LOCK USER (PREVENT PLAN RACE)
+	// LOCK USER
 	//////////////////////////////////////////////////////////////
 
 	var maxTeams int
@@ -77,7 +66,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 2. LOCK CONTEST + GET MATCH_ID
+	// LOCK CONTEST
 	//////////////////////////////////////////////////////////////
 
 	var filled, total int
@@ -95,6 +84,10 @@ if teamMatchID != matchID {
 		return err
 	}
 
+	if teamMatchID != matchID {
+		return errors.New("team does not belong to this match")
+	}
+
 	if status != "upcoming" {
 		return errors.New("contest locked")
 	}
@@ -104,7 +97,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 3. COUNT USER TEAMS FOR THIS MATCH
+	// COUNT USER TEAMS
 	//////////////////////////////////////////////////////////////
 
 	var currentTeams int
@@ -125,7 +118,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 4. PREVENT DUPLICATE ENTRY (SOFT CHECK)
+	// DUPLICATE CHECK
 	//////////////////////////////////////////////////////////////
 
 	var exists bool
@@ -146,7 +139,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 5. INSERT ENTRY (ATOMIC — HARD GUARANTEE VIA UNIQUE INDEX)
+	// INSERT ENTRY
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
@@ -155,7 +148,6 @@ if teamMatchID != matchID {
 	`, contestID, userID, teamID)
 
 	if err != nil {
-		// Handle unique constraint safely (race condition protection)
 		if strings.Contains(err.Error(), "duplicate") {
 			return errors.New("already joined with this team")
 		}
@@ -163,7 +155,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 6. SAFE SPOT UPDATE (NO OVERFLOW)
+	// UPDATE SPOTS
 	//////////////////////////////////////////////////////////////
 
 	result, err := tx.ExecContext(ctx, `
@@ -182,7 +174,7 @@ if teamMatchID != matchID {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 7. INSERT INTO LEADERBOARD
+	// LEADERBOARD
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
@@ -194,15 +186,11 @@ if teamMatchID != matchID {
 		return err
 	}
 
-	//////////////////////////////////////////////////////////////
-	// COMMIT
-	//////////////////////////////////////////////////////////////
-
 	return tx.Commit()
 }
 
 //////////////////////////////////////////////////////////////
-// 🔁 RETRY WRAPPER (COCKROACHDB SAFE)
+// RETRY WRAPPER
 //////////////////////////////////////////////////////////////
 
 func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
@@ -226,15 +214,11 @@ func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
 }
 
 //////////////////////////////////////////////////////////////
-// 🔁 RETRY DETECTOR
+// RETRY DETECTOR
 //////////////////////////////////////////////////////////////
 
 func isRetryableError(err error) bool {
 	return strings.Contains(err.Error(), "restart transaction") ||
 		strings.Contains(err.Error(), "deadlock") ||
-		strings.Contains(err.Error(), "serialization"),
-}
-
-if strings.Contains(err.Error(), "unique") {
-	return errors.New("already joined with this team")
+		strings.Contains(err.Error(), "serialization")
 }
