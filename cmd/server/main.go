@@ -129,6 +129,9 @@ log.Println("✅ Environment validated")
 	// ✅ REQUEST LOGGER
 	app.Use(logger.New())
 
+	// ✅ GLOBAL RATE LIMIT
+	app.Use(middleware.RateLimit())
+
 	// 🔐 SECURE CORS (NO WILDCARD)
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "https://your-frontend-domain.vercel.app",
