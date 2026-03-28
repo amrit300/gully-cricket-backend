@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"log"
 	"os"
+	"context"
+	"time"
 
 	"gully-cricket/internal/services"
 
@@ -98,6 +100,8 @@ func NowPaymentsWebhook(db *sql.DB) fiber.Handler {
 		//////////////////////////////////////////////////////////////
 
 		tx, err := db.Begin()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 		if err != nil {
 			log.Println("❌ DB begin error:", err)
 			return c.SendStatus(500)
@@ -109,7 +113,7 @@ func NowPaymentsWebhook(db *sql.DB) fiber.Handler {
 		//////////////////////////////////////////////////////////////
 
 		var exists bool
-		err = tx.QueryRow(`
+		err = tx.QueryRowContext(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM wallet_transactions WHERE source=$1
 			)
@@ -130,7 +134,7 @@ func NowPaymentsWebhook(db *sql.DB) fiber.Handler {
 		//////////////////////////////////////////////////////////////
 
 		var userID int
-		err = tx.QueryRow(`
+		err = tx.QueryRowContext(ctx, `
 			SELECT user_id FROM payments WHERE payment_id=$1
 		`, payload.PaymentID).Scan(&userID)
 
@@ -153,7 +157,7 @@ func NowPaymentsWebhook(db *sql.DB) fiber.Handler {
 		// ✅ 11. MARK PAYMENT SUCCESS
 		//////////////////////////////////////////////////////////////
 
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(ctx, `
 			UPDATE payments
 			SET status='completed'
 			WHERE payment_id=$1
