@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"gully-cricket/internal/services"
+	dbutil "gully-cricket/internal/db"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -82,11 +83,14 @@ func GetContests(db *sql.DB) fiber.Handler {
 			})
 		}
 
-		rows, err := db.Query(`
-			SELECT id, contest_name, prize_pool, total_spots, filled_spots, status
-			FROM contests
-			WHERE match_id = $1
-		`, matchID)
+		ctx, cancel := dbutil.Ctx()
+defer cancel()
+
+rows, err := db.QueryContext(ctx, `
+	SELECT id, contest_name, prize_pool, total_spots, filled_spots, status
+	FROM contests
+	WHERE match_id = $1
+`, matchID)
 
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
