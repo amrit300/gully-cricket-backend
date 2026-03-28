@@ -1,18 +1,20 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"os"
-	"time"
-	"context"
 	"os/signal"
 	"syscall"
-	
+	"time"
+
 	"gully-cricket/internal/ingestion"
+	"gully-cricket/internal/middleware"
+	"gully-cricket/internal/routes"
 	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
-	"gully-cricket/internal/routes"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -25,14 +27,29 @@ var db *sql.DB
 func main() {
 
 	//////////////////////////////////////////////////////////////
-	// 🔐 ENV VALIDATION (CRITICAL)
+	// 🔐 ENV VALIDATION
 	//////////////////////////////////////////////////////////////
 
-	
+	requiredEnv := []string{
+		"DATABASE_URL",
+		"JWT_SECRET",
+		"NOWPAYMENTS_API_KEY",
+		"NOWPAYMENTS_IPN_SECRET",
+	}
+
+	for _, v := range requiredEnv {
+		if os.Getenv(v) == "" {
+			log.Fatalf("❌ Missing required env: %s", v)
+		}
+	}
+
+	log.Println("✅ Environment validated")
 
 	//////////////////////////////////////////////////////////////
 	// DATABASE INIT
 	//////////////////////////////////////////////////////////////
+
+	databaseURL := os.Getenv("DATABASE_URL") // ✅ FIX
 
 	var err error
 
@@ -50,21 +67,6 @@ func main() {
 	}
 
 	log.Println("✅ Database connected")
-	
-	requiredEnv := []string{
-	"DATABASE_URL",
-	"JWT_SECRET",
-	"NOWPAYMENTS_API_KEY",
-	"NOWPAYMENTS_IPN_SECRET",
-}
-
-for _, v := range requiredEnv {
-	if os.Getenv(v) == "" {
-		log.Fatalf("❌ Missing required env: %s", v)
-	}
-}
-
-log.Println("✅ Environment validated")
 
 	//////////////////////////////////////////////////////////////
 	// BACKGROUND WORKERS
@@ -74,8 +76,7 @@ log.Println("✅ Environment validated")
 
 	go func() {
 		for {
-			err := ingestion.UpdateVenueStats(db)
-			if err != nil {
+			if err := ingestion.UpdateVenueStats(db); err != nil {
 				log.Println("Venue update error:", err)
 			}
 			time.Sleep(6 * time.Hour)
@@ -84,8 +85,7 @@ log.Println("✅ Environment validated")
 
 	go func() {
 		for {
-			err := ingestion.SyncMatchesToDB(db)
-			if err != nil {
+			if err := ingestion.SyncMatchesToDB(db); err != nil {
 				log.Println("Match sync error:", err)
 			}
 			time.Sleep(10 * time.Minute)
@@ -104,8 +104,7 @@ log.Println("✅ Environment validated")
 	//////////////////////////////////////////////////////////////
 
 	log.Println("🚀 Initial match sync...")
-	err = ingestion.SyncMatchesToDB(db)
-	if err != nil {
+	if err = ingestion.SyncMatchesToDB(db); err != nil {
 		log.Println("Initial sync error:", err)
 	}
 	log.Println("✅ Initial match sync done")
@@ -123,65 +122,50 @@ log.Println("✅ Environment validated")
 		},
 	})
 
-	// ✅ RECOVER (crash safety)
 	app.Use(recover.New())
-
-	// ✅ REQUEST LOGGER
 	app.Use(logger.New())
 
-	// ✅ GLOBAL RATE LIMIT
+	// ✅ GLOBAL RATE LIMIT (FIXED import)
 	app.Use(middleware.RateLimit())
 
-	// 🔐 SECURE CORS (NO WILDCARD)
 	app.Use(cors.New(cors.Config{
-		AllowOrigins: "https://your-frontend-domain.vercel.app",
-		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
-		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowOrigins:     "https://your-frontend-domain.vercel.app",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowCredentials: true,
 	}))
 
 	//////////////////////////////////////////////////////////////
-	// HEALTH CHECK (CI/CD)
+	// ROUTES
 	//////////////////////////////////////////////////////////////
 
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"status": "ok",
-		})
-	})
-
-	/////////////
-// 🌐  ROUTES //
-	///////////
-
-	
 	routes.RegisterRoutes(app, db)
 
-//////////////////////////////////////////////////////////////
-// 🛑 GRACEFUL SHUTDOWN 
-//////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////
+	// GRACEFUL SHUTDOWN
+	//////////////////////////////////////////////////////////////
 
-go func() {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
-	<-sig
-	log.Println("🛑 Shutting down server...")
+		<-sig
+		log.Println("🛑 Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	if err := app.ShutdownWithContext(ctx); err != nil {
-		log.Println("Shutdown error:", err)
-	}
+		if err := app.ShutdownWithContext(ctx); err != nil {
+			log.Println("Shutdown error:", err)
+		}
 
-	os.Exit(0)
-}()
+		os.Exit(0)
+	}()
 
-//////////////////////////////////////////////////////////////
-// SERVER START
-//////////////////////////////////////////////////////////////
-	
+	//////////////////////////////////////////////////////////////
+	// SERVER START
+	//////////////////////////////////////////////////////////////
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
