@@ -83,7 +83,7 @@ func UpdateVenueStats(db *sql.DB) error {
 
 		avg := v.TotalRuns / v.Matches
 
-		ctx, cancel := dbutil.WithTimeout()
+		ctx, cancel := dbutil.ctx()
 		defer cancel()
 
 		_, err := db.ExecContext(ctx, `
