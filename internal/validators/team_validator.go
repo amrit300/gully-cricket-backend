@@ -112,7 +112,7 @@ func ValidateMatchStatus(db *sql.DB, matchID int) error {
 	var status string
 
 	err := db.QueryRow(`
-		SELECT status FROM matches_master WHERE id=$1
+		SELECT status FROM matches_master WHERE id=$1 FOR UPDATE
 	`, matchID).Scan(&status)
 
 	if err != nil {
