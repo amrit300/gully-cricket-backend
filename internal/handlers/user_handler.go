@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	dbutil "gully-cricket/internal/db"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gofiber/fiber/v2"
 )
@@ -26,12 +27,15 @@ type RegisterRequest struct {
 
 func CreateUser(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		if len(req.Username) > 50 {
-	return c.Status(400).JSON(fiber.Map{"error": "username too long"})
+		var req RegisterRequest
+
+if err := c.BodyParser(&req); err != nil {
+	return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
 }
 
-		var req RegisterRequest
-		if err := c.BodyParser(&req); err != nil {
+if len(req.Username) > 50 {
+	return c.Status(400).JSON(fiber.Map{"error": "username too long"})
+}
 			return c.Status(400).JSON(fiber.Map{"error": "invalid request"})
 		}
 
@@ -78,13 +82,16 @@ func CreateUser(db *sql.DB) fiber.Handler {
 
 		var id int
 
-		err = db.QueryRow(`
-			INSERT INTO users (username, telegram_id)
-			VALUES ($1, $2)
-			ON CONFLICT (telegram_id) DO UPDATE
-			SET username = EXCLUDED.username
-			RETURNING id
-		`, req.Username, telegramUser.ID).Scan(&id)
+		ctx, cancel := dbutil.Ctx()
+defer cancel()
+
+err = db.QueryRowContext(ctx, `
+	INSERT INTO users (username, telegram_id)
+	VALUES ($1, $2)
+	ON CONFLICT (telegram_id) DO UPDATE
+	SET username = EXCLUDED.username
+	RETURNING id
+`, req.Username, telegramUser.ID).Scan(&id)
 
 		if err != nil {
 			log.Println("USER INSERT ERROR:", err)
