@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strconv"
+	"time"
 
+	"gully-cricket/internal/cache"
 	"gully-cricket/internal/services"
 	dbutil "gully-cricket/internal/db"
 
@@ -46,7 +49,7 @@ func JoinContest(db *sql.DB) fiber.Handler {
 			})
 		}
 
-		// Call service
+		// Call service (WITH RETRY SAFETY)
 		err := services.JoinContestWithRetry(
 			db,
 			userID,
@@ -60,6 +63,16 @@ func JoinContest(db *sql.DB) fiber.Handler {
 			})
 		}
 
+		//////////////////////////////////////////////////////////////
+		// 🔥 CACHE INVALIDATION (CRITICAL)
+		//////////////////////////////////////////////////////////////
+
+		// invalidate contests cache (match-wise unknown → safe wipe pattern)
+		cache.Rdb.Del(cache.Ctx, "contests:*")
+
+		// invalidate leaderboard
+		cache.Rdb.Del(cache.Ctx, "leaderboard:"+strconv.Itoa(req.ContestID))
+
 		return c.JSON(fiber.Map{
 			"status": "joined",
 		})
@@ -67,13 +80,16 @@ func JoinContest(db *sql.DB) fiber.Handler {
 }
 
 //////////////////////////////////////////////////////////////
-// GET CONTESTS
+// GET CONTESTS (WITH REDIS CACHE)
 //////////////////////////////////////////////////////////////
 
 func GetContests(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		// ✅ SAFE PARAM PARSE
+		//////////////////////////////////////////////////////////////
+		// 1. SAFE PARAM PARSE
+		//////////////////////////////////////////////////////////////
+
 		matchIDStr := c.Params("match_id")
 
 		matchID, err := strconv.Atoi(matchIDStr)
@@ -83,14 +99,29 @@ func GetContests(db *sql.DB) fiber.Handler {
 			})
 		}
 
-		ctx, cancel := dbutil.Ctx()
-defer cancel()
+		cacheKey := "contests:" + matchIDStr
 
-rows, err := db.QueryContext(ctx, `
-	SELECT id, contest_name, prize_pool, total_spots, filled_spots, status
-	FROM contests
-	WHERE match_id = $1
-`, matchID)
+		//////////////////////////////////////////////////////////////
+		// 2. CACHE HIT
+		//////////////////////////////////////////////////////////////
+
+		cached, err := cache.Rdb.Get(cache.Ctx, cacheKey).Result()
+		if err == nil {
+			return c.Type("json").SendString(cached)
+		}
+
+		//////////////////////////////////////////////////////////////
+		// 3. DB QUERY (FALLBACK)
+		//////////////////////////////////////////////////////////////
+
+		ctx, cancel := dbutil.Ctx()
+		defer cancel()
+
+		rows, err := db.QueryContext(ctx, `
+			SELECT id, contest_name, prize_pool, total_spots, filled_spots, status
+			FROM contests
+			WHERE match_id = $1
+		`, matchID)
 
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
@@ -125,7 +156,7 @@ rows, err := db.QueryContext(ctx, `
 			})
 		}
 
-		// ✅ rows error check
+		// rows error check
 		if err := rows.Err(); err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error": "failed to process contests",
@@ -135,6 +166,17 @@ rows, err := db.QueryContext(ctx, `
 		if contests == nil {
 			contests = []fiber.Map{}
 		}
+
+		//////////////////////////////////////////////////////////////
+		// 4. CACHE STORE
+		//////////////////////////////////////////////////////////////
+
+		bytes, _ := json.Marshal(contests)
+		cache.Rdb.Set(cache.Ctx, cacheKey, bytes, 20*time.Second)
+
+		//////////////////////////////////////////////////////////////
+		// 5. RESPONSE
+		//////////////////////////////////////////////////////////////
 
 		return c.JSON(contests)
 	}
