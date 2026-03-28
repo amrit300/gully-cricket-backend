@@ -37,8 +37,8 @@ for rows.Next() {
 
 	if status == "Completed" {
 		if err := services.ProcessContestPayout(db, contestID); err != nil {
-	log.Println("payout error:", err)
-}
+			log.Println("payout error:", err)
+		}
 	}
 }
 
