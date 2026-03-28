@@ -2,67 +2,22 @@ package handlers
 
 import (
 	"database/sql"
-	"strings"
 
-	dbutil "gully-cricket/internal/db"
+	"gully-cricket/internal/services"
+
 	"github.com/gofiber/fiber/v2"
 )
 
 func GetMatches(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		ctx, cancel := dbutil.Ctx()
-		defer cancel()
-		
-		rows, err := db.QueryContext(ctx, `
-			SELECT team_a, team_b, start_time, status, venue
-			FROM matches_master
-			ORDER BY start_time DESC
-			LIMIT 50
-		`)
+		data, err := services.GetMatches(db)
 		if err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			return c.Status(500).JSON(fiber.Map{
+				"error": "failed to fetch matches",
+			})
 		}
-		defer rows.Close()
 
-		live := []fiber.Map{}
-		upcoming := []fiber.Map{}
-		recent := []fiber.Map{}
-
-		for rows.Next() {
-			var teamA, teamB, status, venue string
-			var startTime string
-
-			if err := rows.Scan(&teamA, &teamB, &startTime, &status, &venue); err != nil {
-	return c.Status(500).JSON(fiber.Map{"error": "failed to read matches"})
-}
-			match := fiber.Map{
-				"teamA":     teamA,
-				"teamB":     teamB,
-				"startTime": startTime,
-				"status":    status,
-				"venue":     venue,
-			}
-
-			if strings.Contains(status, "Live") || strings.Contains(status, "Stumps") {
-				live = append(live, match)
-			} else if strings.Contains(status, "Starts") || strings.Contains(status, "Upcoming") {
-				upcoming = append(upcoming, match)
-			} else {
-				recent = append(recent, match)
-			}
-		}
-		if len(live) == 0 && len(upcoming) == 0 {
-			live = recent
-		}
-		if err := rows.Err(); err != nil {
-	return c.Status(500).JSON(fiber.Map{"error": "failed to process matches"})
-}
-
-		return c.JSON(fiber.Map{
-			"live":     live,
-			"upcoming": upcoming,
-			"recent":   recent,
-		})
+		return c.JSON(data)
 	}
 }
