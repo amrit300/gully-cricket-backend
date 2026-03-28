@@ -36,11 +36,34 @@ for rows.Next() {
 	}
 
 	if status == "Completed" {
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Println(err)
+		continue
+	}
+
+	var lock int
+	err = tx.QueryRow(`
+		SELECT id FROM contests WHERE id=$1 FOR UPDATE
+	`, contestID).Scan(&lock)
+
+	if err != nil {
+		tx.Rollback()
+		continue
+	}
+
+	tx.Commit()
+
+	if err := services.ProcessContestPayout(db, contestID); err != nil {
+		log.Println("payout error:", err)
+	}
+}
+	
 		if err := services.ProcessContestPayout(db, contestID); err != nil {
 			log.Println("payout error:", err)
 		}
 	}
-}
 
 if err := rows.Err(); err != nil {
 	log.Println("rows error:", err)
