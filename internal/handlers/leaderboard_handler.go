@@ -36,7 +36,7 @@ func GetLeaderboard(db *sql.DB) fiber.Handler {
 
 		cached, err := cache.Rdb.Get(cache.Ctx, cacheKey).Result()
 		if err == nil {
-			return c.SendString(cached)
+			return c.Type("json").SendString(cached)
 		}
 
 		//////////////////////////////////////////////////////////////
@@ -111,7 +111,7 @@ func GetLeaderboard(db *sql.DB) fiber.Handler {
 		//////////////////////////////////////////////////////////////
 
 		bytes, _ := json.Marshal(entries)
-		cache.Rdb.Set(cache.Ctx, cacheKey, bytes, 10) // 10 sec TTL
+		cache.Rdb.Set(cache.Ctx, cacheKey, bytes, 10*time.Second) // 10 sec TTL
 
 		//////////////////////////////////////////////////////////////
 		// 5. RESPONSE
