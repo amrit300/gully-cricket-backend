@@ -47,7 +47,7 @@ func JoinContest(db *sql.DB) fiber.Handler {
 		}
 
 		// Call service
-		err := services.JoinContest(
+		err := services.JoinContestWithRetry(
 			db,
 			userID,
 			req.TeamID,
