@@ -22,17 +22,19 @@ func GetVenueStatsHandler(db *sql.DB) fiber.Handler {
 
 		var avgScore, paceWickets, spinWickets int
 
-		err = db.QueryRow(`
-			SELECT
-				vs.avgscore,
-				vs.pacewickets,
-				vs.spinwickets
-			FROM venuestats vs
-			JOIN matches_master m ON m.venue = vs.venue
-			WHERE m.id = $1
-			LIMIT 1
-		`, matchID).Scan(&avgScore, &paceWickets, &spinWickets)
+		ctx, cancel := dbutil.Ctx()
+defer cancel()
 
+err = db.QueryRowContext(ctx, `
+	SELECT
+		vs.avgscore,
+		vs.pacewickets,
+		vs.spinwickets
+	FROM venuestats vs
+	JOIN matches_master m ON m.venue = vs.venue
+	WHERE m.id = $1
+	LIMIT 1
+`, matchID).Scan(&avgScore, &paceWickets, &spinWickets)
 		// ✅ SAFE FALLBACK
 		if err == sql.ErrNoRows {
 			return c.JSON(defaultVenue())
