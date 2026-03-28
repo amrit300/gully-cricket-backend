@@ -3,49 +3,95 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"gully-cricket/internal/cache"
+	dbutil "gully-cricket/internal/db"
 )
 
-func GetMatches(db *sql.DB) ([]map[string]interface{}, error) {
+func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 
-	cached, err := cache.Rdb.Get(cache.Ctx, "matches").Result()
+	//////////////////////////////////////////////////////////////
+	// 1. REDIS CACHE
+	//////////////////////////////////////////////////////////////
+
+	cached, err := cache.Rdb.Get(cache.Ctx, "matches:v1").Result()
 	if err == nil {
-		var data []map[string]interface{}
+		var data map[string]interface{}
 		json.Unmarshal([]byte(cached), &data)
 		return data, nil
 	}
 
-	rows, err := db.Query(`
-		SELECT id, team1, team2, status, start_time
+	//////////////////////////////////////////////////////////////
+	// 2. DB QUERY (SAFE WITH TIMEOUT)
+	//////////////////////////////////////////////////////////////
+
+	ctx, cancel := dbutil.Ctx()
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT team_a, team_b, start_time, status, venue
 		FROM matches_master
+		ORDER BY start_time DESC
+		LIMIT 50
 	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var matches []map[string]interface{}
+	live := []map[string]interface{}{}
+	upcoming := []map[string]interface{}{}
+	recent := []map[string]interface{}{}
 
 	for rows.Next() {
-		var id int
-		var t1, t2, status string
-		var start string
 
-		rows.Scan(&id, &t1, &t2, &status, &start)
+		var teamA, teamB, status, venue string
+		var startTime string
 
-		matches = append(matches, map[string]interface{}{
-			"id": id,
-			"team1": t1,
-			"team2": t2,
-			"status": status,
-			"start_time": start,
-		})
+		if err := rows.Scan(&teamA, &teamB, &startTime, &status, &venue); err != nil {
+			return nil, err
+		}
+
+		match := map[string]interface{}{
+			"teamA":     teamA,
+			"teamB":     teamB,
+			"startTime": startTime,
+			"status":    status,
+			"venue":     venue,
+		}
+
+		if strings.Contains(status, "Live") || strings.Contains(status, "Stumps") {
+			live = append(live, match)
+		} else if strings.Contains(status, "Starts") || strings.Contains(status, "Upcoming") {
+			upcoming = append(upcoming, match)
+		} else {
+			recent = append(recent, match)
+		}
 	}
 
-	bytes, _ := json.Marshal(matches)
-	cache.Rdb.Set(cache.Ctx, "matches", bytes, 30*time.Second)
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	return matches, nil
+	// fallback logic
+	if len(live) == 0 && len(upcoming) == 0 {
+		live = recent
+	}
+
+	result := map[string]interface{}{
+		"live":     live,
+		"upcoming": upcoming,
+		"recent":   recent,
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 3. CACHE RESULT
+	//////////////////////////////////////////////////////////////
+
+	bytes, _ := json.Marshal(result)
+	cache.Rdb.Set(cache.Ctx, "matches:v1", bytes, 20*time.Second)
+
+	return result, nil
 }
