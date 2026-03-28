@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"time"
+	"fmt"
 )
 
 func ProcessContestPayout(db *sql.DB, contestID int) error {
@@ -103,6 +104,27 @@ func ProcessContestPayout(db *sql.DB, contestID int) error {
 		}
 
 		//////////////////////////////////////////////////////////////
+// 🔐 PREVENT DOUBLE PAYOUT (IDEMPOTENCY)
+//////////////////////////////////////////////////////////////
+
+var alreadyPaid bool
+err = tx.QueryRow(`
+	SELECT EXISTS(
+		SELECT 1 FROM wallet_transactions
+		WHERE user_id=$1
+		AND source=$2
+		AND type='winnings'
+	)
+`, userID, fmt.Sprintf("contest_%d", contestID)).Scan(&alreadyPaid)
+
+if err != nil {
+	return err
+}
+
+if alreadyPaid {
+	continue
+}
+		//////////////////////////////////////////////////////////////
 		// 6. CREDIT WALLET (SAFE — LEDGER BASED)
 		//////////////////////////////////////////////////////////////
 
@@ -115,6 +137,11 @@ func ProcessContestPayout(db *sql.DB, contestID int) error {
 		if err != nil {
 			return err
 		}
+		rows, _ := res.RowsAffected()
+		if rows == 0 {
+
+			return errors.New("wallet update failed")
+}
 
 		//////////////////////////////////////////////////////////////
 		// 7. LEDGER ENTRY (CRITICAL)
@@ -123,7 +150,7 @@ func ProcessContestPayout(db *sql.DB, contestID int) error {
 		_, err = tx.Exec(`
 			INSERT INTO wallet_transactions (user_id, amount, type, source, created_at)
 			VALUES ($1,$2,'winnings',$3,$4)
-		`, userID, amount, "contest_"+string(rune(contestID)), time.Now())
+		`, userID, amount, fmt.Sprintf("contest_%d", contestID), time.Now())
 
 		if err != nil {
 			return err
