@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 	"database/sql"
+	dbutil "gully-cricket/internal/db"
 )
 
 type VenueData struct {
@@ -86,25 +87,29 @@ func UpdateVenueStats(db *sql.DB) error {
 
 		avg := v.TotalRuns / v.Matches
 
-		_, err := db.Exec(`
-		INSERT INTO venue_stats (venue, avg_score, pace_wickets, spin_wickets, total_matches)
-		VALUES ($1,$2,$3,$4,$5)
-		ON CONFLICT (venue) DO UPDATE SET
-		avg_score=$2,
-		pace_wickets=$3,
-		spin_wickets=$4,
-		total_matches=$5,
-		last_updated=NOW()
-		`,
-			v.Venue,
-			avg,
-			v.PaceWickets,
-			v.SpinWickets,
-			v.Matches,
+		ctx, cancel := dbutil.Ctx()
+defer cancel()
+
+_, err := db.ExecContext(ctx, `
+INSERT INTO venue_stats (venue, avg_score, pace_wickets, spin_wickets, total_matches)
+VALUES ($1,$2,$3,$4,$5)
+ON CONFLICT (venue) DO UPDATE SET
+avg_score=$2,
+pace_wickets=$3,
+spin_wickets=$4,
+total_matches=$5,
+last_updated=NOW()
+`,
+	v.Venue,
+	avg,
+	v.PaceWickets,
+	v.SpinWickets,
+	v.Matches,
+)
 		)
 
 		if err != nil {
-			fmt.Println("DB ERROR:", err)
+			log.Println("venue ingestion error:", err)
 		}
 	}
 
