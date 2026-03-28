@@ -54,7 +54,6 @@ func SyncMatchesToDB(db *sql.DB) error {
 
 		// ✅ INSERT
 		ctx, cancel := dbutil.Ctx()
-		defer cancel()
 		
 		_, err = db.ExecContext(ctx, `
 			INSERT INTO matches_master
@@ -75,6 +74,7 @@ func SyncMatchesToDB(db *sql.DB) error {
 			startTime,
 			status,
 		)
+		cancel()
 
 		if err != nil {
 			log.Println("❌ MATCH INSERT ERROR:", err)
