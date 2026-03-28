@@ -61,8 +61,6 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	// WALLET WEBHOOK
 	app.Post("/webhook/nowpayments", handlers.NowPaymentsWebhook(db))
 
-})
-
 	//////////////////////////////////////////////////////////////
 	// 🔐 PROTECTED ROUTES
 	//////////////////////////////////////////////////////////////
@@ -75,7 +73,7 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	// TEAM
 	api.Post("/teams", handlers.CreateTeam(db))
 
-	// JOIN
+	// JOIN CONTEST
 	api.Post("/contest/join", handlers.JoinContest(db))
 
 	// WALLET
@@ -83,8 +81,13 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/wallet/add", handlers.AddFundsHandler(db))
 
 	// WITHDRAW
-	api.Post("/withdraw", handlers.RequestWithdrawal(db)
+	api.Post("/withdraw", handlers.RequestWithdrawal(db))
+
+	//////////////////////////////////////////////////////////////
+	// 📊 INTERNAL / DEBUG ROUTES (SAFE — PROTECTED)
+	//////////////////////////////////////////////////////////////
 
 	api.Get("/queue/stats", func(c *fiber.Ctx) error {
-	return c.JSON(queue.Stats())
+		return c.JSON(queue.Stats())
+	})
 }
