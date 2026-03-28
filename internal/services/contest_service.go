@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 	"strconv"
+
 	"gully-cricket/internal/cache"
 )
 
@@ -157,7 +158,7 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// UPDATE SPOTS
+	// UPDATE SPOTS (RACE SAFE)
 	//////////////////////////////////////////////////////////////
 
 	result, err := tx.ExecContext(ctx, `
@@ -176,7 +177,7 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// LEADERBOARD
+	// LEADERBOARD ENTRY
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
@@ -188,22 +189,29 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 		return err
 	}
 
+	//////////////////////////////////////////////////////////////
+	// COMMIT
+	//////////////////////////////////////////////////////////////
+
 	if err := tx.Commit(); err != nil {
-	return err
+		return err
+	}
+
+	//////////////////////////////////////////////////////////////
+	// CACHE INVALIDATION
+	//////////////////////////////////////////////////////////////
+
+	cache.Rdb.Del(cache.Ctx, "contests:"+strconv.Itoa(matchID))
+
+	go func() {
+		cache.Rdb.Del(cache.Ctx, "leaderboard:"+strconv.Itoa(contestID))
+	}()
+
+	return nil
 }
 
-// 🔥 CACHE INVALIDATION (SYNC — REQUIRED)
-cache.Rdb.Del(cache.Ctx, "contests:"+strconv.Itoa(matchID))
-
-// 🔥 OPTIONAL ASYNC (LEADERBOARD)
-go func() {
-	cache.Rdb.Del(cache.Ctx, "leaderboard:"+strconv.Itoa(contestID))
-}()
-
-return nil
-
 //////////////////////////////////////////////////////////////
-// RETRY WRAPPER
+// RETRY WRAPPER (COCKROACH SAFE)
 //////////////////////////////////////////////////////////////
 
 func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
@@ -231,7 +239,14 @@ func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
 //////////////////////////////////////////////////////////////
 
 func isRetryableError(err error) bool {
-	return strings.Contains(err.Error(), "restart transaction") ||
-		strings.Contains(err.Error(), "deadlock") ||
-		strings.Contains(err.Error(), "serialization")
+
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+
+	return strings.Contains(msg, "restart transaction") ||
+		strings.Contains(msg, "deadlock") ||
+		strings.Contains(msg, "serialization")
 }
