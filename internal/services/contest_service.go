@@ -234,6 +234,7 @@ func isRetryableError(err error) bool {
 		strings.Contains(err.Error(), "deadlock") ||
 		strings.Contains(err.Error(), "serialization"),
 }
-	if strings.Contains(err.Error(), "duplicate") {
-	return nil // already exists, safe
+
+if strings.Contains(err.Error(), "unique") {
+	return errors.New("already joined with this team")
 }
