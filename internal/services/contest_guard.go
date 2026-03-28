@@ -2,6 +2,7 @@ package services
 
 import ("database/sql"
 		"fmt"
+		"context"
 		)
 
 func CheckUserContestLimit(tx *sql.Tx, userID, contestID int, maxTeams int) error {
