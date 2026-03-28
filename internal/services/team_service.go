@@ -32,7 +32,7 @@ func CreateTeam(
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 🔐 VALIDATIONS (PRE-CHECKS)
+	// 🔐 VALIDATIONS (FAST PRE-CHECKS)
 	//////////////////////////////////////////////////////////////
 
 	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
@@ -61,7 +61,40 @@ func CreateTeam(
 	defer cancel()
 
 	//////////////////////////////////////////////////////////////
-	// 🔐 INSERT TEAM (LOCK SAFE)
+	// 🔐 HARD LOCK (RACE CONDITION PROTECTION)
+	//////////////////////////////////////////////////////////////
+
+	// Lock user row to serialize team creation
+	var maxTeams int
+	err = tx.QueryRowContext(ctx, `
+		SELECT max_teams_per_match
+		FROM users
+		WHERE id=$1
+		FOR UPDATE
+	`, userID).Scan(&maxTeams)
+
+	if err != nil {
+		return 0, err
+	}
+
+	// Count existing teams inside transaction (AFTER LOCK)
+	var currentTeams int
+	err = tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM teams
+		WHERE user_id=$1 AND match_id=$2
+	`, userID, matchID).Scan(&currentTeams)
+
+	if err != nil {
+		return 0, err
+	}
+
+	if currentTeams >= maxTeams {
+		return 0, errors.New("team limit reached")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 INSERT TEAM (ATOMIC)
 	//////////////////////////////////////////////////////////////
 
 	var teamID int
