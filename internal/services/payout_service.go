@@ -3,7 +3,6 @@ package services
 import (
 	"database/sql"
 	"errors"
-	"log"
 	"time"
 	"fmt"
 )
@@ -128,7 +127,7 @@ if alreadyPaid {
 		// 6. CREDIT WALLET (SAFE — LEDGER BASED)
 		//////////////////////////////////////////////////////////////
 
-		_, err = tx.Exec(`
+		result, err := tx.Exec(`
 			UPDATE users
 			SET subscription_balance = subscription_balance + $1
 			WHERE id=$2
@@ -137,7 +136,7 @@ if alreadyPaid {
 		if err != nil {
 			return err
 		}
-		rows, _ := res.RowsAffected()
+		rows, err := result.RowsAffected()
 		if rows == 0 {
 
 			return errors.New("wallet update failed")
