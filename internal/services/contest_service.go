@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+	"strings"
 )
 
 func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
