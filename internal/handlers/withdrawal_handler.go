@@ -8,7 +8,6 @@ import (
 )
 
 type WithdrawRequest struct {
-	UserID int     `json:"user_id"`
 	Amount float64 `json:"amount"`
 }
 
@@ -25,7 +24,10 @@ func RequestWithdrawal(db *sql.DB) fiber.Handler {
 			return c.Status(400).JSON(fiber.Map{"error": "invalid amount"})
 		}
 
-		err := services.RequestWithdrawal(db, req.UserID, req.Amount)
+		// 🔐 NEVER trust user_id from body
+		userID := c.Locals("user_id").(int)
+
+		err := services.RequestWithdrawal(db, userID, req.Amount)
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
