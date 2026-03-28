@@ -61,8 +61,6 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	// WALLET WEBHOOK
 	app.Post("/webhook/nowpayments", handlers.NowPaymentsWebhook(db))
 
-	api.Get("/queue/stats", func(c *fiber.Ctx) error {
-	return c.JSON(queue.Stats())
 })
 
 	//////////////////////////////////////////////////////////////
@@ -85,5 +83,8 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 	api.Post("/wallet/add", handlers.AddFundsHandler(db))
 
 	// WITHDRAW
-	api.Post("/withdraw", handlers.RequestWithdrawal(db))
+	api.Post("/withdraw", handlers.RequestWithdrawal(db)
+
+	api.Get("/queue/stats", func(c *fiber.Ctx) error {
+	return c.JSON(queue.Stats())
 }
