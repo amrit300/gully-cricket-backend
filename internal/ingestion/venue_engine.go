@@ -3,24 +3,23 @@ package ingestion
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
 	"database/sql"
+
 	dbutil "gully-cricket/internal/db"
 )
 
 type VenueData struct {
-	Venue        string
-	TotalRuns    int
-	PaceWickets  int
-	SpinWickets  int
-	Matches      int
+	Venue       string
+	TotalRuns   int
+	PaceWickets int
+	SpinWickets int
+	Matches     int
 }
 
-/*
-MAIN FUNCTION
-*/
 func UpdateVenueStats(db *sql.DB) error {
 
 	apiKey := os.Getenv("ENTITY_API_KEY")
@@ -65,11 +64,9 @@ func UpdateVenueStats(db *sql.DB) error {
 
 		v := venueMap[venue]
 
-		// 🔥 SCORE (approx — can improve later)
 		totalScore := int(getFloat(item["total_runs"]))
 		v.TotalRuns += totalScore
 
-		// 🔥 WICKETS (approx logic)
 		p := int(getFloat(item["pace_wkts"]))
 		s := int(getFloat(item["spin_wkts"]))
 
@@ -78,7 +75,6 @@ func UpdateVenueStats(db *sql.DB) error {
 		v.Matches++
 	}
 
-	// SAVE TO DB
 	for _, v := range venueMap {
 
 		if v.Matches == 0 {
@@ -87,25 +83,24 @@ func UpdateVenueStats(db *sql.DB) error {
 
 		avg := v.TotalRuns / v.Matches
 
-		ctx, cancel := dbutil.Ctx()
-defer cancel()
+		ctx, cancel := dbutil.WithTimeout()
+		defer cancel()
 
-_, err := db.ExecContext(ctx, `
-INSERT INTO venue_stats (venue, avg_score, pace_wickets, spin_wickets, total_matches)
-VALUES ($1,$2,$3,$4,$5)
-ON CONFLICT (venue) DO UPDATE SET
-avg_score=$2,
-pace_wickets=$3,
-spin_wickets=$4,
-total_matches=$5,
-last_updated=NOW()
-`,
-	v.Venue,
-	avg,
-	v.PaceWickets,
-	v.SpinWickets,
-	v.Matches,
-)
+		_, err := db.ExecContext(ctx, `
+			INSERT INTO venue_stats (venue, avg_score, pace_wickets, spin_wickets, total_matches)
+			VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (venue) DO UPDATE SET
+			avg_score=$2,
+			pace_wickets=$3,
+			spin_wickets=$4,
+			total_matches=$5,
+			last_updated=NOW()
+		`,
+			v.Venue,
+			avg,
+			v.PaceWickets,
+			v.SpinWickets,
+			v.Matches,
 		)
 
 		if err != nil {
@@ -117,10 +112,6 @@ last_updated=NOW()
 
 	return nil
 }
-
-/*
-HELPERS
-*/
 
 func safeString(v interface{}) string {
 	if s, ok := v.(string); ok {
