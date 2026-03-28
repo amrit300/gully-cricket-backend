@@ -6,6 +6,7 @@ import (
 	"gully-cricket/internal/handlers"
 	"gully-cricket/internal/ingestion"
 	"gully-cricket/internal/middleware"
+	"gully-cricket/internal/queue"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -59,6 +60,10 @@ func RegisterRoutes(app *fiber.App, db *sql.DB) {
 
 	// WALLET WEBHOOK
 	app.Post("/webhook/nowpayments", handlers.NowPaymentsWebhook(db))
+
+	api.Get("/queue/stats", func(c *fiber.Ctx) error {
+	return c.JSON(queue.Stats())
+})
 
 	//////////////////////////////////////////////////////////////
 	// 🔐 PROTECTED ROUTES
