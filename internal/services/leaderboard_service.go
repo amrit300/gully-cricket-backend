@@ -31,9 +31,11 @@ func processLeaderboard(db *sql.DB) {
 	defer cancel()
 
 	rows, err := db.QueryContext(ctx, `
-		SELECT DISTINCT contest_id, match_id
-		FROM leaderboard
-	`)
+		SELECT DISTINCT l.contest_id, c.match_id
+		FROM leaderboard l
+		JOIN contests c ON c.id = l.contest_id
+		WHERE c.status = 'upcoming'
+		`)
 	if err != nil {
 		log.Println("worker query error:", err)
 		return
@@ -65,10 +67,22 @@ func processLeaderboard(db *sql.DB) {
 func runContestPipeline(db *sql.DB, contestID, matchID int) {
 
 	tx, err := db.Begin()
-	if err != nil {
-		log.Println("tx begin error:", err)
-		return
-	}
+if err != nil {
+	log.Println("tx begin error:", err)
+	return
+}
+
+// 🔐 LOCK CONTEST (PREVENT PARALLEL PIPELINE)
+var lock int
+err = tx.QueryRow(`
+	SELECT id FROM contests WHERE id=$1 FOR UPDATE
+`, contestID).Scan(&lock)
+
+if err != nil {
+	log.Println("lock error:", err)
+	tx.Rollback()
+	return
+}
 	defer tx.Rollback()
 
 	if err := updateTeamPoints(tx, matchID); err != nil {
