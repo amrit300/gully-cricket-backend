@@ -1,7 +1,10 @@
 package services
 
 import (
+	"context"
 	"database/sql"
+	"errors"
+	"time"
 
 	"gully-cricket/internal/validators"
 )
@@ -16,12 +19,22 @@ func CreateTeam(
 	viceCaptainID int,
 ) (int, error) {
 
-	// Defensive Check 
-	if userID <= 0 || matchID <= 0 {
-	return 0, errors.New("invalid input")
-}
+	//////////////////////////////////////////////////////////////
+	// 🔐 DEFENSIVE CHECK
+	//////////////////////////////////////////////////////////////
 
-	// VALIDATIONS
+	if userID <= 0 || matchID <= 0 {
+		return 0, errors.New("invalid input")
+	}
+
+	if len(playerIDs) != 11 {
+		return 0, errors.New("team must have 11 players")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 VALIDATIONS (PRE-CHECKS)
+	//////////////////////////////////////////////////////////////
+
 	if err := validators.ValidateTeam(db, playerIDs, captainID, viceCaptainID); err != nil {
 		return 0, err
 	}
@@ -34,17 +47,33 @@ func CreateTeam(
 		return 0, err
 	}
 
-	// TRANSACTION
+	//////////////////////////////////////////////////////////////
+	// 🚀 TRANSACTION START
+	//////////////////////////////////////////////////////////////
+
 	tx, err := db.Begin()
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 INSERT TEAM (LOCK SAFE)
+	//////////////////////////////////////////////////////////////
+
 	var teamID int
 
-	err = tx.QueryRow(`
-		INSERT INTO teams (user_id, match_id, team_name, captain_player_id, vice_captain_player_id)
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO teams (
+			user_id,
+			match_id,
+			team_name,
+			captain_player_id,
+			vice_captain_player_id
+		)
 		VALUES ($1,$2,$3,$4,$5)
 		RETURNING id
 	`, userID, matchID, teamName, captainID, viceCaptainID).Scan(&teamID)
@@ -53,8 +82,17 @@ func CreateTeam(
 		return 0, err
 	}
 
+	//////////////////////////////////////////////////////////////
+	// 🔐 INSERT TEAM PLAYERS
+	//////////////////////////////////////////////////////////////
+
 	for _, pid := range playerIDs {
-		_, err = tx.Exec(`
+
+		if pid <= 0 {
+			return 0, errors.New("invalid player id")
+		}
+
+		_, err = tx.ExecContext(ctx, `
 			INSERT INTO team_players (team_id, player_id)
 			VALUES ($1,$2)
 		`, teamID, pid)
@@ -64,5 +102,13 @@ func CreateTeam(
 		}
 	}
 
-	return teamID, tx.Commit()
+	//////////////////////////////////////////////////////////////
+	// ✅ COMMIT
+	//////////////////////////////////////////////////////////////
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+
+	return teamID, nil
 }
