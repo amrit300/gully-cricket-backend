@@ -4,9 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 	"strings"
+	"time"
 )
+
+//////////////////////////////////////////////////////////////
+// MAIN FUNCTION
+//////////////////////////////////////////////////////////////
 
 func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 
@@ -30,6 +34,26 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 		return err
 	}
 	defer tx.Rollback()
+
+	//////////////////////////////////////////////////////////////
+	// 🔐 0.5 TEAM OWNERSHIP VALIDATION (CRITICAL SECURITY)
+	//////////////////////////////////////////////////////////////
+
+	var ownerID int
+
+	err = tx.QueryRowContext(ctx, `
+		SELECT user_id
+		FROM teams
+		WHERE id=$1
+	`, teamID).Scan(&ownerID)
+
+	if err != nil {
+		return err
+	}
+
+	if ownerID != userID {
+		return errors.New("unauthorized team")
+	}
 
 	//////////////////////////////////////////////////////////////
 	// 1. LOCK USER (PREVENT PLAN RACE)
@@ -97,7 +121,7 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 4. PREVENT DUPLICATE ENTRY
+	// 4. PREVENT DUPLICATE ENTRY (SOFT CHECK)
 	//////////////////////////////////////////////////////////////
 
 	var exists bool
@@ -118,7 +142,7 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 5. INSERT ENTRY (ATOMIC)
+	// 5. INSERT ENTRY (ATOMIC — HARD GUARANTEE VIA UNIQUE INDEX)
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
@@ -127,6 +151,10 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	`, contestID, userID, teamID)
 
 	if err != nil {
+		// Handle unique constraint safely (race condition protection)
+		if strings.Contains(err.Error(), "duplicate") {
+			return errors.New("already joined with this team")
+		}
 		return err
 	}
 
@@ -167,4 +195,38 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	//////////////////////////////////////////////////////////////
 
 	return tx.Commit()
+}
+
+//////////////////////////////////////////////////////////////
+// 🔁 RETRY WRAPPER (COCKROACHDB SAFE)
+//////////////////////////////////////////////////////////////
+
+func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
+
+	for i := 0; i < 3; i++ {
+
+		err := JoinContest(db, userID, teamID, contestID)
+
+		if err == nil {
+			return nil
+		}
+
+		if !isRetryableError(err) {
+			return err
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return errors.New("transaction failed after retries")
+}
+
+//////////////////////////////////////////////////////////////
+// 🔁 RETRY DETECTOR
+//////////////////////////////////////////////////////////////
+
+func isRetryableError(err error) bool {
+	return strings.Contains(err.Error(), "restart transaction") ||
+		strings.Contains(err.Error(), "deadlock") ||
+		strings.Contains(err.Error(), "serialization")
 }
