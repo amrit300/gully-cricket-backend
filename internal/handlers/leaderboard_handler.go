@@ -20,20 +20,22 @@ func GetLeaderboard(db *sql.DB) fiber.Handler {
 			})
 		}
 
-		rows, err := db.Query(`
-			SELECT
-				l.rank,
-				l.points,
-				l.winnings,
-				u.username,
-				t.team_name
-			FROM leaderboard l
-			JOIN teams t ON t.id = l.team_id
-			JOIN users u ON u.id = t.user_id
-			WHERE l.contest_id = $1
-			ORDER BY l.rank ASC
-			LIMIT 100
-		`, contestID)
+		ctx, cancel := dbutil.Ctx()
+		defer cancel()
+		rows, err := db.QueryContext(ctx, `
+		SELECT
+		l.rank,
+		l.points,
+		l.winnings,
+		u.username,
+		t.team_name
+	FROM leaderboard l
+	JOIN teams t ON t.id = l.team_id
+	JOIN users u ON u.id = t.user_id
+	WHERE l.contest_id = $1
+	ORDER BY l.rank ASC
+	LIMIT 100
+`, contestID)
 
 		if err != nil {
 			log.Println("LEADERBOARD QUERY ERROR:", err)
