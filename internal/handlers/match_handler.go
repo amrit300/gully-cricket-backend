@@ -4,13 +4,17 @@ import (
 	"database/sql"
 	"strings"
 
+	dbutil "gully-cricket/internal/db"
 	"github.com/gofiber/fiber/v2"
 )
 
 func GetMatches(db *sql.DB) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 
-		rows, err := db.Query(`
+		ctx, cancel := dbutil.Ctx()
+		defer cancel()
+		
+		rows, err := db.QueryContext(ctx, `
 			SELECT team_a, team_b, start_time, status, venue
 			FROM matches_master
 			ORDER BY start_time DESC
