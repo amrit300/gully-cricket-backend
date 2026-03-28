@@ -42,7 +42,7 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	var ownerID int
 
 	err = tx.QueryRowContext(ctx, `
-		SELECT user_id
+		SELECT user_id, match_id
 		FROM teams
 		WHERE id=$1
 	`, teamID).Scan(&ownerID)
@@ -52,8 +52,12 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	}
 
 	if ownerID != userID {
-		return errors.New("unauthorized team")
-	}
+	return errors.New("unauthorized team")
+}
+
+if teamMatchID != matchID {
+	return errors.New("team does not belong to this match")
+}
 
 	//////////////////////////////////////////////////////////////
 	// 1. LOCK USER (PREVENT PLAN RACE)
@@ -228,5 +232,8 @@ func JoinContestWithRetry(db *sql.DB, userID, teamID, contestID int) error {
 func isRetryableError(err error) bool {
 	return strings.Contains(err.Error(), "restart transaction") ||
 		strings.Contains(err.Error(), "deadlock") ||
-		strings.Contains(err.Error(), "serialization")
+		strings.Contains(err.Error(), "serialization"),
+}
+	if strings.Contains(err.Error(), "duplicate") {
+	return nil // already exists, safe
 }
