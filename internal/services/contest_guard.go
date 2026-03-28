@@ -8,7 +8,7 @@ func CheckUserContestLimit(tx *sql.Tx, userID, contestID int, maxTeams int) erro
 
 	var count int
 
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(context.Background(), `
 		SELECT COUNT(*)
 		FROM contest_entries
 		WHERE user_id=$1 AND contest_id=$2
