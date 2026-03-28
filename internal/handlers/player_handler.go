@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"context"
+	"time"
 
+	
 	"github.com/gofiber/fiber/v2"
 	"gully-cricket/internal/providers"
 )
@@ -36,10 +39,12 @@ func SyncPlayers(db *sql.DB) fiber.Handler {
 			role := fmt.Sprintf("%v", p["role"])
 			team := fmt.Sprintf("%v", p["team"])
 
-			_, err := db.Exec(`
-				INSERT INTO players (name, team, role, credit, match_id)
-				VALUES ($1,$2,$3,8.5,$4)
-				ON CONFLICT DO NOTHING
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := db.ExecContext(ctx, `
+			INSERT INTO players (name, team, role, credit, match_id)
+			VALUES ($1,$2,$3,8.5,$4)
+			ON CONFLICT DO NOTHING
 			`, name, team, role, matchID)
 
 			if err != nil {
@@ -62,8 +67,11 @@ if err != nil {
 	return c.Status(400).JSON(fiber.Map{"error": "invalid match id"})
 }
 
-rows, err := db.Query(`
-	SELECT ...
+ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+defer cancel()
+
+rows, err := db.QueryContext(ctx, `
+	SELECT id, name, team, role, credit, fantasy_points
 	FROM players
 	WHERE match_id = $1
 `, matchID)
@@ -96,6 +104,11 @@ rows, err := db.Query(`
 				"fantasy_points": fantasyPoints,
 			})
 		}
+		if err := rows.Err(); err != nil {
+	return c.Status(500).JSON(fiber.Map{
+		"error": "failed to read players",
+	})
+}
 
 		return c.JSON(players)
 	}
