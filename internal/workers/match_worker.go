@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"database/sql"
 	"log"
 
 	dbutil "gully-cricket/internal/db"
