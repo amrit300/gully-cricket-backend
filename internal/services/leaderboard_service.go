@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"log"
 	"time"
+	"strconv"
+"gully-cricket/internal/cache"
+"github.com/redis/go-redis/v9"
 )
 
 //////////////////////////////////////////////////////////////
@@ -108,6 +111,8 @@ if err != nil {
 	if err := tx.Commit(); err != nil {
 		log.Println("commit error:", err)
 	}
+	// 🔥 REDIS SYNC (Dream11 upgrade)
+go syncLeaderboardToRedis(db, contestID)
 }
 
 //////////////////////////////////////////////////////////////
@@ -248,4 +253,48 @@ func assignWinnings(tx *sql.Tx, contestID int) error {
 	}
 
 	return rows.Err()
+}
+//////////////////////////////////////////////////////////////
+// 🔥 REDIS SYNC (DB → REDIS)
+//////////////////////////////////////////////////////////////
+
+func syncLeaderboardToRedis(db *sql.DB, contestID int) {
+
+	rows, err := db.Query(`
+		SELECT team_id, points
+		FROM leaderboard
+		WHERE contest_id = $1
+	`, contestID)
+
+	if err != nil {
+		log.Println("redis sync query error:", err)
+		return
+	}
+	defer rows.Close()
+
+	key := "leaderboard:" + strconv.Itoa(contestID)
+
+	for rows.Next() {
+
+		var teamID int
+		var points float64
+
+		if err := rows.Scan(&teamID, &points); err != nil {
+			continue
+		}
+
+		err := cache.Rdb.ZAdd(cache.Ctx, key,
+			redis.Z{
+				Score:  points,
+				Member: teamID,
+			},
+		).Err()
+
+		if err != nil {
+			log.Println("redis update error:", err)
+		}
+	}
+
+	// 🔥 TTL (cleanup)
+	cache.Rdb.Expire(cache.Ctx, key, 5*time.Minute)
 }
