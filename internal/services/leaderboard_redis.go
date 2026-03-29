@@ -3,6 +3,7 @@ package services
 import (
 	"strconv"
 	"time"
+	"strconv"
 
 	"github.com/redis/go-redis/v9"
 	"gully-cricket/internal/cache"
@@ -19,7 +20,7 @@ func UpdateLeaderboardScore(contestID int, teamID int, points float64) error {
 	err := cache.Rdb.ZAdd(cache.Ctx, key,
 		redis.Z{
 			Score:  points,
-			Member: teamID,
+			Member: strconv.Itoa(teamID),
 		},
 	).Err()
 
@@ -67,7 +68,7 @@ func GetUserRank(contestID int, teamID int) (int64, error) {
 
 	key := "leaderboard:" + strconv.Itoa(contestID)
 
-	rank, err := cache.Rdb.ZRevRank(cache.Ctx, key, teamID).Result()
+	rank, err := cache.Rdb.ZRevRank(cache.Ctx, key, strconv.Itoa(teamID)).Result()
 	if err != nil {
 		return -1, err
 	}
