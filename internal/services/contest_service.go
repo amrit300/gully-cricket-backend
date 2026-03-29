@@ -59,19 +59,7 @@ if shadow {
 		return errors.New("account restricted due to risk")
 	}
 
-	//////////////////////////////////////////////////////////////
-	// 🔥 SHADOW BAN CHECK
-	//////////////////////////////////////////////////////////////
-
-	var shadow bool
-	_ = tx.QueryRowContext(ctx, `
-		SELECT shadow_banned FROM users WHERE id=$1
-	`, userID).Scan(&shadow)
-
-	if shadow {
-		// silently allow (fake success)
-		return nil
-	}
+	
 
 	//////////////////////////////////////////////////////////////
 	// TEAM VALIDATION
