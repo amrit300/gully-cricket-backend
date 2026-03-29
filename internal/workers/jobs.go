@@ -96,3 +96,17 @@ func handleLeaderboard(data interface{}) error {
 
 	return nil
 }
+func handleFraudCheck(data interface{}) {
+
+	userID, ok := data.(int)
+	if !ok {
+		return
+	}
+
+	log.Println("🔍 Fraud check triggered for user/team:", userID)
+
+	// future:
+	// → ML scoring
+	// → graph detection
+	// → anomaly detection
+}
