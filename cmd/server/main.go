@@ -82,38 +82,52 @@ func main() {
 	//////////////////////////////////////////////////////////////
 	// BACKGROUND WORKERS
 	//////////////////////////////////////////////////////////////
-
-	go services.StartLeaderboardWorker(db)
-
 	go func() {
-		for {
-			if err := ingestion.UpdateVenueStats(db); err != nil {
-				log.Println("Venue update error:", err)
-			}
-			time.Sleep(6 * time.Hour)
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		if err := ingestion.UpdateVenueStatsWithCtx(ctx, db); err != nil {
+			log.Println("Venue update error:", err)
 		}
+
+		cancel()
+
+		time.Sleep(6 * time.Hour)
+	}
 	}()
 
 	go func() {
 		for {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	if err = ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
+		log.Println("Match sync error:", err)
+	}
+
+	cancel() // 🔥 move here
+
+	time.Sleep(10 * time.Minute)
+		}
 			
 			if err = ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
 				log.Println("Match sync error:", err)
 			}
 			time.Sleep(10 * time.Minute)
 		}
-	}()
-
 	//////////////////////////////////////////////////////////////
 	// INITIAL SYNC
 	//////////////////////////////////////////////////////////////
 
 	log.Println("🚀 Initial match sync...")
-	if err = ingestion.SyncMatchesToDB(db); err != nil {
-		log.Println("Initial sync error:", err)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	
+	if err = ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
+	log.Println("Initial sync error:", err)
 	}
+	
+	cancel()
+	
 	log.Println("✅ Initial match sync done")
 
 	//////////////////////////////////////////////////////////////
