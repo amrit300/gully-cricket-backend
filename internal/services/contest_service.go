@@ -141,28 +141,28 @@ if shadow {
 	if filled >= total {
 		return errors.New("contest full")
 	}
+//////////////////////////////////////////////////////////////
+// 🔥 VELOCITY / BOT ABUSE CHECK (PLACE HERE)
+//////////////////////////////////////////////////////////////
 
-	//////////////////////////////////////////////////////////////
-	// 🔥 CROSS-CONTEST ABUSE CHECK
-	//////////////////////////////////////////////////////////////
+var count int
 
-	var recentJoins int
+_ = tx.QueryRowContext(ctx, `
+	SELECT COUNT(*)
+	FROM contest_entries
+	WHERE user_id=$1
+	AND created_at > NOW() - INTERVAL '1 hour'
+`, userID).Scan(&count)
 
-	_ = tx.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM contest_entries
-		WHERE user_id=$1
-		AND created_at > NOW() - INTERVAL '1 hour'
-	`, userID).Scan(&recentJoins)
-
-	if recentJoins > 20 {
-		// increase risk score silently
-		_, _ = tx.ExecContext(ctx, `
-			UPDATE user_risk_profiles
-			SET risk_score = risk_score + 15
-			WHERE user_id=$1
-		`, userID)
-	}
+if count > 20 {
+	// increase risk score (silent)
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO user_risk_profiles (user_id, risk_score)
+		VALUES ($1,15)
+		ON CONFLICT (user_id)
+		DO UPDATE SET risk_score = user_risk_profiles.risk_score + 15
+	`, userID)
+}
 
 	//////////////////////////////////////////////////////////////
 	// COUNT USER TEAMS
