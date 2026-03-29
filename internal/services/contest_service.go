@@ -31,6 +31,34 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	defer tx.Rollback()
 
 	//////////////////////////////////////////////////////////////
+	// 🔥 FRAUD CHECK — RISK SCORE
+	//////////////////////////////////////////////////////////////
+
+	var riskScore float64
+
+	_ = tx.QueryRowContext(ctx, `
+		SELECT risk_score FROM user_risk_profiles WHERE user_id=$1
+	`, userID).Scan(&riskScore)
+
+	if riskScore > 80 {
+		return errors.New("account restricted due to risk")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔥 SHADOW BAN CHECK
+	//////////////////////////////////////////////////////////////
+
+	var shadow bool
+	_ = tx.QueryRowContext(ctx, `
+		SELECT shadow_banned FROM users WHERE id=$1
+	`, userID).Scan(&shadow)
+
+	if shadow {
+		// silently allow (fake success)
+		return nil
+	}
+
+	//////////////////////////////////////////////////////////////
 	// TEAM VALIDATION
 	//////////////////////////////////////////////////////////////
 
@@ -97,6 +125,28 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 
 	if filled >= total {
 		return errors.New("contest full")
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔥 CROSS-CONTEST ABUSE CHECK
+	//////////////////////////////////////////////////////////////
+
+	var recentJoins int
+
+	_ = tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM contest_entries
+		WHERE user_id=$1
+		AND created_at > NOW() - INTERVAL '1 hour'
+	`, userID).Scan(&recentJoins)
+
+	if recentJoins > 20 {
+		// increase risk score silently
+		_, _ = tx.ExecContext(ctx, `
+			UPDATE user_risk_profiles
+			SET risk_score = risk_score + 15
+			WHERE user_id=$1
+		`, userID)
 	}
 
 	//////////////////////////////////////////////////////////////
@@ -188,6 +238,26 @@ func JoinContest(db *sql.DB, userID, teamID, contestID int) error {
 	if err != nil {
 		return err
 	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔥 AUDIT LOG (FORENSIC)
+	//////////////////////////////////////////////////////////////
+
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO audit_logs (user_id, action, metadata)
+		VALUES ($1,$2,$3)
+	`, userID, "join_contest", `{"contest_id":`+strconv.Itoa(contestID)+`}`)
+
+	//////////////////////////////////////////////////////////////
+	// 🔥 SMALL RISK UPDATE (BEHAVIOR TRACK)
+	//////////////////////////////////////////////////////////////
+
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO user_risk_profiles (user_id, risk_score)
+		VALUES ($1,0.5)
+		ON CONFLICT (user_id)
+		DO UPDATE SET risk_score = user_risk_profiles.risk_score + 0.5
+	`, userID)
 
 	//////////////////////////////////////////////////////////////
 	// COMMIT
