@@ -12,7 +12,6 @@ import (
 	"gully-cricket/internal/ingestion"
 	"gully-cricket/internal/middleware"
 	"gully-cricket/internal/routes"
-	"gully-cricket/internal/services"
 	"gully-cricket/internal/workers"
 
 	"gully-cricket/internal/cache"
@@ -107,12 +106,6 @@ func main() {
 	cancel() // 🔥 move here
 
 	time.Sleep(10 * time.Minute)
-		}
-			
-			if err = ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
-				log.Println("Match sync error:", err)
-			}
-			time.Sleep(10 * time.Minute)
 		}
 	//////////////////////////////////////////////////////////////
 	// INITIAL SYNC
