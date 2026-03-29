@@ -12,7 +12,7 @@ var DB *sql.DB
 
 func handleMatchComplete(data interface{}) error {
 
-	matchID, ok := data.(int)
+	matchID, ok := data.(string)
 	if !ok {
 		return nil
 	}
@@ -21,11 +21,13 @@ func handleMatchComplete(data interface{}) error {
 	defer cancel()
 
 	rows, err := DB.QueryContext(ctx, `
-		SELECT id
-		FROM contests
-		WHERE match_id = $1 AND status != 'completed'
+	SELECT id
+	FROM contests
+	WHERE match_id = (
+	SELECT id FROM matches_master WHERE external_id = $1)
+	AND status != 'completed'
 	`, matchID)
-
+	
 	if err != nil {
 		return err
 	}
