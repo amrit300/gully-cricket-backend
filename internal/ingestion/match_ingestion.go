@@ -80,24 +80,36 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 			log.Println("❌ MATCH INSERT ERROR:", err)
 			continue
 		}
-		// 🔥 CACHE INVALIDATION (MANDATORY)
-		cache.Rdb.Del(cache.Ctx, "matches:v1")
+		
 
 		//////////////////////////////////////////////////////////////
 		// 🔥 EVENT TRIGGER
 		//////////////////////////////////////////////////////////////
 
 		if status == "Completed" {
+			matchIDInt := 0
+			fmt.Sscanf(matchID, "%d", &matchIDInt)
+
 			queue.Enqueue(queue.Job{
-				Type: "match_complete",
-				Data: matchID, // ⚠️ must match DB type
-			})
+	Type: "match_complete",
+	Data: matchIDInt,
+	Key:  matchID, // keep string for sharding
+})
 		}
 
 		log.Println("✅ SYNCED:", teamA, "vs", teamB)
 	}
+	// 🔥 CACHE INVALIDATION (MANDATORY)
+		cache.Rdb.Del(cache.Ctx, "matches:v1")
 
 	log.Println("✅ MATCH SYNC COMPLETED")
 
 	return nil
+}
+func SyncMatchesToDB(db *sql.DB) error {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	return SyncMatchesToDBWithCtx(ctx, db)
 }
