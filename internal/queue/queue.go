@@ -11,11 +11,11 @@ import (
 //////////////////////////////////////////////////////////////
 
 const (
-	NumQueues       = 16           // 🔥 sharded queues
-	QueueSize       = 20000       // per queue → total 320K buffer
-	MaxRetry        = 3
-	EnqueueTimeout  = 20 * time.Millisecond
-	RetryDelay      = 100 * time.Millisecond
+	NumQueues      = 16
+	QueueSize      = 20000
+	MaxRetry       = 3
+	EnqueueTimeout = 20 * time.Millisecond
+	RetryDelay     = 100 * time.Millisecond
 )
 
 //////////////////////////////////////////////////////////////
@@ -26,8 +26,8 @@ type Job struct {
 	Type      string
 	Data      interface{}
 	Retry     int
-	Priority  int    // 0 = high, 1 = normal
-	Key       string // for sharding (user_id / contest_id)
+	Priority  int
+	Key       string
 	CreatedAt time.Time
 }
 
@@ -78,15 +78,27 @@ func Enqueue(job Job) {
 	job.CreatedAt = time.Now()
 
 	idx := getQueueIndex(job.Key)
+
+	// 🔥 PRIORITY OVERRIDE (HIGH PRIORITY → shard 0)
+	if job.Priority == 0 {
+		idx = 0
+	}
+
 	q := Queues[idx]
 
-  if len(q) > QueueSize*90/100 {
-	log.Printf("⚠️ Queue shard=%d 80%% full (%d/%d)\n", idx, len(q), QueueSize)
-}
+	// 🔥 SAFETY CHECK (INIT NOT CALLED)
+	if q == nil {
+		log.Println("QUEUE NOT INITIALIZED")
+		return
+	}
+
+	// 🔥 80% ALERT
+	if len(q) > QueueSize*90/100 {
+		log.Printf("⚠️ Queue shard=%d 90%% full (%d/%d)\n", idx, len(q), QueueSize)
+	}
 
 	select {
 
-	// FAST PATH
 	case q <- job:
 		atomic.AddUint64(&TotalEnqueued, 1)
 		return
