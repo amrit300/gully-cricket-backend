@@ -1,16 +1,18 @@
 package ingestion
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"time"
 
-	dbutil "gully-cricket/internal/db"
 	"gully-cricket/internal/providers"
+	"gully-cricket/internal/queue"
+	"gully-cricket/internal/cache"
 )
 
-func SyncMatchesToDB(db *sql.DB) error {
+func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
 	matches, err := providers.FetchMatchesFromEntityAPI()
 	if err != nil {
@@ -25,8 +27,6 @@ func SyncMatchesToDB(db *sql.DB) error {
 	}
 
 	for _, m := range matches {
-
-		// ✅ SAFE EXTRACTION
 
 		matchID := fmt.Sprintf("%v", m["match_id"])
 
@@ -52,9 +52,10 @@ func SyncMatchesToDB(db *sql.DB) error {
 			continue
 		}
 
-		// ✅ INSERT
-		ctx, cancel := dbutil.Ctx()
-		
+		//////////////////////////////////////////////////////////////
+		// 🔥 UPSERT MATCH
+		//////////////////////////////////////////////////////////////
+
 		_, err = db.ExecContext(ctx, `
 			INSERT INTO matches_master
 			(external_id, team_a, team_b, venue, start_time, status)
@@ -74,14 +75,26 @@ func SyncMatchesToDB(db *sql.DB) error {
 			startTime,
 			status,
 		)
-		cancel()
 
 		if err != nil {
 			log.Println("❌ MATCH INSERT ERROR:", err)
 			continue
 		}
+		// 🔥 CACHE INVALIDATION (MANDATORY)
+		cache.Rdb.Del(cache.Ctx, "matches:v1")
 
-		log.Println("✅ INSERTED:", teamA, "vs", teamB)
+		//////////////////////////////////////////////////////////////
+		// 🔥 EVENT TRIGGER
+		//////////////////////////////////////////////////////////////
+
+		if status == "Completed" {
+			queue.Enqueue(queue.Job{
+				Type: "match_complete",
+				Data: matchID, // ⚠️ must match DB type
+			})
+		}
+
+		log.Println("✅ SYNCED:", teamA, "vs", teamB)
 	}
 
 	log.Println("✅ MATCH SYNC COMPLETED")
