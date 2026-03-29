@@ -3,7 +3,6 @@ package workers
 import (
 	"log"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
