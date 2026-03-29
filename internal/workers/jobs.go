@@ -6,6 +6,7 @@ import (
 
 	dbutil "gully-cricket/internal/db"
 	"gully-cricket/internal/services"
+	"gully-cricket/internal/queue"
 )
 
 var DB *sql.DB // injected from main
@@ -39,8 +40,18 @@ func handleLeaderboard(data interface{}) error {
 
 		var teamID int
 		if err := rows.Scan(&teamID); err != nil {
+			log.Println("SCAN ERROR:", err)
 			continue
 		}
+
+		//////////////////////////////////////////////////////////////
+		// 🔥 FRAUD / ANOMALY HOOK (FUTURE ML / GRAPH)
+		//////////////////////////////////////////////////////////////
+
+		queue.Enqueue(queue.Job{
+			Type: "fraud_check",
+			Data: teamID,
+		})
 
 		//////////////////////////////////////////////////////////////
 		// ✅ PASS CONTEXT DOWNSTREAM (IMPORTANT)
@@ -49,12 +60,29 @@ func handleLeaderboard(data interface{}) error {
 		points, err := services.CalculateTeamPointsWithCtx(ctx, DB, teamID)
 		if err != nil {
 			log.Println("POINT CALC ERROR:", err)
+
+			// 🔥 RETRY SAFE
+			queue.Retry(queue.Job{
+				Type: "leaderboard_update",
+				Data: contestID,
+			})
+
 			continue
 		}
+
+		//////////////////////////////////////////////////////////////
+		// ✅ REDIS LEADERBOARD UPDATE
+		//////////////////////////////////////////////////////////////
 
 		err = services.UpdateLeaderboardScore(contestID, teamID, points)
 		if err != nil {
 			log.Println("REDIS UPDATE ERROR:", err)
+
+			// 🔥 RETRY SAFE
+			queue.Retry(queue.Job{
+				Type: "leaderboard_update",
+				Data: contestID,
+			})
 		}
 	}
 
