@@ -7,9 +7,6 @@ import (
 	dbutil "gully-cricket/internal/db"
 	"gully-cricket/internal/services"
 )
-
-var DB *sql.DB
-
 func handleMatchComplete(data interface{}) error {
 
 	matchID, ok := data.(string)
