@@ -13,6 +13,7 @@ import (
 	"gully-cricket/internal/middleware"
 	"gully-cricket/internal/routes"
 	"gully-cricket/internal/workers"
+	"gully-cricket/internal/queue"
 
 	"gully-cricket/internal/cache"
 	"github.com/gofiber/fiber/v2"
@@ -73,6 +74,8 @@ func main() {
 	cache.InitRedis()
 	log.Println("✅ Redis connected")
 
+	queue.Init() // 🔥 REQUIRED
+
 // 🔥 THEN WORKERS
 	workers.DB = db
 	workers.StartWorkerPool()
@@ -107,6 +110,7 @@ func main() {
 
 	time.Sleep(10 * time.Minute)
 		}
+		}()
 	//////////////////////////////////////////////////////////////
 	// INITIAL SYNC
 	//////////////////////////////////////////////////////////////
