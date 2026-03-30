@@ -80,6 +80,7 @@ func main() {
 	workers.DB = db
 	workers.StartWorkerPool(5)
 	log.Println("✅ Worker pool initialized")
+	workers.StartSubscriptionWorker()   // 🔥 ADD THIS
 
 	//////////////////////////////////////////////////////////////
 	// BACKGROUND WORKERS
