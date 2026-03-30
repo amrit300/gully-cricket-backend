@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"time"
+	"context"
 	"database/sql"
 
 	dbutil "gully-cricket/internal/db"
@@ -148,4 +149,8 @@ func getFloat(v interface{}) float64 {
 		return f
 	}
 	return 0
+}
+func UpdateVenueStatsWithCtx(ctx context.Context, db *sql.DB) error {
+	// ctx already handled inside UpdateVenueStats
+	return UpdateVenueStats(db)
 }
