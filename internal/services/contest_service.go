@@ -85,17 +85,17 @@ if shadow {
 // 🔥 SUBSCRIPTION CHECK (PLACE HERE)
 //////////////////////////////////////////////////////////////
 
-var status string
+var subStatus string
 
 err = tx.QueryRowContext(ctx, `
 	SELECT status FROM user_subscriptions WHERE user_id=$1
-`, userID).Scan(&status)
+`, userID).Scan(&subStatus)
 
 if err != nil {
 	return errors.New("subscription required")
 }
 
-if status != "active" {
+if subStatus != "active" {
 	return errors.New("subscription inactive")
 }
 
