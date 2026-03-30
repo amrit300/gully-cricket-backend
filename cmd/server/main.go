@@ -78,7 +78,7 @@ func main() {
 
 // 🔥 THEN WORKERS
 	workers.DB = db
-	workers.StartWorkerPool()
+	workers.StartWorkerPool(5)
 	log.Println("✅ Worker pool initialized")
 
 	//////////////////////////////////////////////////////////////
