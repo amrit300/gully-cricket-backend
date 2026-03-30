@@ -20,8 +20,8 @@ func Subscribe(db *sql.DB) fiber.Handler {
 		}
 
 		userID := c.Locals("user_id").(int)
+		err := services.SubscribeUser(db, userID, planID)
 
-		err := services.SubscribeUser(db, userID, req.PlanID, req.TeamCount)
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
