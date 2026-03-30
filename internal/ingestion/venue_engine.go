@@ -47,9 +47,11 @@ func UpdateVenueStats(db *sql.DB) error {
 	if i == 2 {
 		return err
 	}
-}
-
-defer res.Body.Close()
+	}
+	if res == nil {
+	return fmt.Errorf("failed to fetch venue data")
+	}
+	defer res.Body.Close()
 
 	var raw map[string]interface{}
 
@@ -64,7 +66,7 @@ defer res.Body.Close()
 	items, ok := response["items"].([]interface{})
 	if !ok {
 	return fmt.Errorf("invalid items structure")
-})
+}
 
 	venueMap := map[string]*VenueData{}
 
