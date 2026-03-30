@@ -23,7 +23,7 @@ func GetBalance(db *sql.DB, userID int) (float64, error) {
 	var balance float64
 
 	err := db.QueryRowContext(ctx, `
-		SELECT subscription_balance
+		SELECT COALESCE(subscription_balance, 0)
 		FROM users
 		WHERE id=$1
 	`, userID).Scan(&balance)
@@ -36,7 +36,7 @@ func GetBalance(db *sql.DB, userID int) (float64, error) {
 }
 
 //////////////////////////////////////////////////////////////
-// ➖ SUBSCRIPTION DEDUCTION
+// ➖ SUBSCRIPTION DEDUCTION (ATOMIC + SAFE)
 //////////////////////////////////////////////////////////////
 
 func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
@@ -52,39 +52,27 @@ func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	var balance float64
-
-	err := tx.QueryRowContext(ctx, `
-		SELECT subscription_balance
-		FROM users
-		WHERE id=$1
-		FOR UPDATE
-	`, userID).Scan(&balance)
-
-	if err != nil {
-		return err
-	}
-
-	if balance < amount {
-		return errors.New("insufficient balance")
-	}
-
 	//////////////////////////////////////////////////////////////
-	// UPDATE BALANCE
+	// 🔐 ATOMIC DEDUCTION (NO RACE CONDITION)
 	//////////////////////////////////////////////////////////////
 
-	_, err = tx.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET subscription_balance = subscription_balance - $1
-		WHERE id=$2
+		WHERE id=$2 AND subscription_balance >= $1
 	`, amount, userID)
 
 	if err != nil {
 		return err
 	}
 
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return errors.New("insufficient balance")
+	}
+
 	//////////////////////////////////////////////////////////////
-	// LEDGER ENTRY
+	// 📒 LEDGER ENTRY (STRICT TYPE)
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
@@ -96,7 +84,7 @@ func DeductSubscription(tx *sql.Tx, userID int, amount float64) error {
 }
 
 //////////////////////////////////////////////////////////////
-// ➕ ADD FUNDS (WEBHOOK ONLY)
+// ➕ ADD FUNDS (WEBHOOK SAFE + IDEMPOTENT)
 //////////////////////////////////////////////////////////////
 
 func AddFunds(tx *sql.Tx, userID int, amount float64, source string) error {
@@ -117,7 +105,7 @@ func AddFunds(tx *sql.Tx, userID int, amount float64, source string) error {
 	defer cancel()
 
 	//////////////////////////////////////////////////////////////
-	// 🔐 PREVENT DUPLICATE TRANSACTION
+	// 🔐 IDEMPOTENCY LOCK (STRONG)
 	//////////////////////////////////////////////////////////////
 
 	var exists bool
@@ -133,11 +121,11 @@ func AddFunds(tx *sql.Tx, userID int, amount float64, source string) error {
 	}
 
 	if exists {
-		return errors.New("transaction already processed")
+		return nil // ✅ idempotent success (important)
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 💰 CREDIT BALANCE
+	// 💰 ATOMIC CREDIT
 	//////////////////////////////////////////////////////////////
 
 	_, err = tx.ExecContext(ctx, `
