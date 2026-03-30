@@ -81,6 +81,23 @@ if shadow {
 	if ownerID != userID {
 		return errors.New("unauthorized team")
 	}
+	//////////////////////////////////////////////////////////////
+// 🔥 SUBSCRIPTION CHECK (PLACE HERE)
+//////////////////////////////////////////////////////////////
+
+var status string
+
+err = tx.QueryRowContext(ctx, `
+	SELECT status FROM user_subscriptions WHERE user_id=$1
+`, userID).Scan(&status)
+
+if err != nil {
+	return errors.New("subscription required")
+}
+
+if status != "active" {
+	return errors.New("subscription inactive")
+}
 
 	//////////////////////////////////////////////////////////////
 	// LOCK USER
