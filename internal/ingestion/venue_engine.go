@@ -30,12 +30,26 @@ func UpdateVenueStats(db *sql.DB) error {
 	)
 
 	client := &http.Client{Timeout: 10 * time.Second}
+	var res *http.Response
+	var err error
+	
+	for i := 0; i < 3; i++ {
 
-	res, err := client.Get(url)
-	if err != nil {
+	res, err = client.Get(url)
+	if err == nil && res.StatusCode == 200 {
+		break
+	}
+
+	log.Println("Retrying venue API...", err)
+
+	time.Sleep(500 * time.Millisecond)
+
+	if i == 2 {
 		return err
 	}
-	defer res.Body.Close()
+}
+
+defer res.Body.Close()
 
 	var raw map[string]interface{}
 
@@ -43,8 +57,14 @@ func UpdateVenueStats(db *sql.DB) error {
 		return err
 	}
 
-	response := raw["response"].(map[string]interface{})
-	items := response["items"].([]interface{})
+	response, ok := raw["response"].(map[string]interface{})
+	if !ok {
+	return fmt.Errorf("invalid API response")
+}
+	items, ok := response["items"].([]interface{})
+	if !ok {
+	return fmt.Errorf("invalid items structure")
+})
 
 	venueMap := map[string]*VenueData{}
 
@@ -84,7 +104,7 @@ func UpdateVenueStats(db *sql.DB) error {
 		avg := v.TotalRuns / v.Matches
 
 		ctx, cancel := dbutil.Ctx()
-		defer cancel()
+		
 
 		_, err := db.ExecContext(ctx, `
 			INSERT INTO venue_stats (venue, avg_score, pace_wickets, spin_wickets, total_matches)
@@ -102,6 +122,7 @@ func UpdateVenueStats(db *sql.DB) error {
 			v.SpinWickets,
 			v.Matches,
 		)
+		cancel()
 
 		if err != nil {
 			log.Println("venue ingestion error:", err)
