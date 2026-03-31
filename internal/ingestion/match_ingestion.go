@@ -156,7 +156,9 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 				log.Println("❌ CRIC TIME ERROR:", err)
 				skipped++
 				continue
-			}
+			} 
+			log.Printf("DEBUG MATCH → A:%s B:%s ID:%s TIME:%v\n",
+					   teamA, teamB, matchID, startTime)
 		}
 
 		//////////////////////////////////////////////////////////////
