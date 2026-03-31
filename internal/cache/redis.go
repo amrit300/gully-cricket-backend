@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"log"
 	"os"
 	"time"
 
@@ -14,13 +15,16 @@ var Ctx = context.Background()
 func InitRedis() {
 
 	url := os.Getenv("REDIS_URL")
+
 	if url == "" {
-		url = "localhost:6379"
+		log.Println("⚠️ REDIS_URL not set — cache disabled")
+		Rdb = nil
+		return
 	}
 
 	Rdb = redis.NewClient(&redis.Options{
 		Addr:         url,
-		Password:     "",
+		Password:     "", // set if needed
 		DB:           0,
 		ReadTimeout:  2 * time.Second,
 		WriteTimeout: 2 * time.Second,
@@ -28,8 +32,15 @@ func InitRedis() {
 		MinIdleConns: 10,
 	})
 
+	// 🔥 SAFE PING (NO PANIC)
 	_, err := Rdb.Ping(Ctx).Result()
 	if err != nil {
-		panic("Redis connection failed")
+		log.Println("⚠️ Redis connection failed — running without cache:", err)
+
+		// 🔥 CRITICAL: disable Redis instead of crashing
+		Rdb = nil
+		return
 	}
+
+	log.Println("✅ Redis connected")
 }
