@@ -31,7 +31,7 @@ func parseTimeSafe(input string) (time.Time, error) {
 		if e == nil {
 			return t.UTC(), nil
 		}
-		lasterr = err
+		lasterr = e
 	}
 
 	return time.Time{}, fmt.Errorf("unsupported time format: %s", input)
