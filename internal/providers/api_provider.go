@@ -86,54 +86,27 @@ func FetchMatchesFromCricAPI() ([]map[string]interface{}, error) {
 	}
 	defer res.Body.Close()
 
-	body, _ := io.ReadAll(res.Body)
-	log.Println("🔍 CRIC RAW:", string(body))
-
 	var raw map[string]interface{}
-	if err := json.Unmarshal(body, &raw); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
 
+	// 🔥 THIS IS THE FIX
 	data, ok := raw["data"].([]interface{})
 	if !ok {
-		return []map[string]interface{}{}, nil
+		return nil, fmt.Errorf("invalid API structure: data missing")
 	}
 
 	var matches []map[string]interface{}
 
-	for _, m := range data {
-	if matchMap, ok := m.(map[string]interface{}); ok {
-
-		// 🔥 SAFE TEAM EXTRACTION
-		teams, _ := matchMap["teams"].([]interface{})
-
-		var teamA, teamB string
-
-		if len(teams) >= 2 {
-			teamA, _ = teams[0].(string)
-			teamB, _ = teams[1].(string)
+	for _, item := range data {
+		if m, ok := item.(map[string]interface{}); ok {
+			matches = append(matches, m)
 		}
-
-		// 🔥 SKIP INVALID MATCHES (CRITICAL)
-		if teamA == "" || teamB == "" {
-			continue
-		}
-
-		match := map[string]interface{}{
-			"teamA":     teamA,
-			"teamB":     teamB,
-			"status":    fmt.Sprintf("%v", matchMap["status"]),
-			"venue":     fmt.Sprintf("%v", matchMap["venue"]),
-			"startTime": fmt.Sprintf("%v", matchMap["dateTimeGMT"]),
-		}
-
-		matches = append(matches, match)
 	}
-}
 
 	return matches, nil
 }
-
 //////////////////////////////////////////////////////////////
 // SMART FETCH (PRIMARY + FALLBACK)
 //////////////////////////////////////////////////////////////
