@@ -19,23 +19,33 @@ import (
 
 func parseTimeSafe(input string) (time.Time, error) {
 
+	input = strings.TrimSpace(input)
+
+	// 🔥 FIX: add Z if missing
+	if len(input) == 19 && strings.Contains(input, "T") {
+		input = input + "Z"
+	}
+
 	layouts := []string{
 		time.RFC3339,
+		"2006-01-02T15:04:05Z",
 		"2006-01-02T15:04:05",
 		"2006-01-02 15:04:05",
 		"2006-01-02",
 	}
-	var lasterr error
+
+	var lastErr error
+
 	for _, layout := range layouts {
-		t, e := time.Parse(layout, input)
-		if e == nil {
+		if t, err := time.Parse(layout, input); err == nil {
 			return t.UTC(), nil
+		} else {
+			lastErr = err
 		}
-		lasterr = e
 	}
 
-	return time.Time{}, fmt.Errorf("unsupported time format: %s", input, lasterr)}
-
+	return time.Time{}, fmt.Errorf("unsupported time format: %s | %v", input, lastErr)
+}
 //////////////////////////////////////////////////////////////
 // 🔥 SAFE STRING NORMALIZER
 //////////////////////////////////////////////////////////////
