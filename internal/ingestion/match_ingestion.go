@@ -26,7 +26,6 @@ func parseTimeSafe(input string) (time.Time, error) {
 		"2006-01-02",
 	}
 
-	var err error
 	for _, layout := range layouts {
 		t, e := time.Parse(layout, input)
 		if e == nil {
