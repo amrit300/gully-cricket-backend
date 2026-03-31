@@ -143,20 +143,21 @@ if teama, ok := m["teama"].(map[string]interface{}); ok {
 		continue
 	}
 
-	switch teams := teamsRaw.(type) {
+	teams, ok := teamsRaw.([]interface{})
+if !ok {
+	log.Println("❌ CRIC: invalid teams type")
+	skipped++
+	continue
+}
 
-	case []interface{}:
-		if len(teams) >= 2 {
-			teamA = fmt.Sprintf("%v", teams[0])
-			teamB = fmt.Sprintf("%v", teams[1])
-		}
+if len(teams) < 2 {
+	log.Println("❌ CRIC: insufficient teams")
+	skipped++
+	continue
+}
 
-	case []any:
-		if len(teams) >= 2 {
-			teamA = fmt.Sprintf("%v", teams[0])
-			teamB = fmt.Sprintf("%v", teams[1])
-		}
-
+teamA = fmt.Sprintf("%v", teams[0])
+teamB = fmt.Sprintf("%v", teams[1])
 	default:
 		log.Println("❌ CRIC: unknown teams type")
 		skipped++
