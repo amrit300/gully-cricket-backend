@@ -10,39 +10,90 @@ import (
 
 	"gully-cricket/internal/cache"
 	"gully-cricket/internal/providers"
+	"gully-cricket/internal/queue"
 )
 
 //////////////////////////////////////////////////////////////
-// MAIN SYNC FUNCTION
+// 🔥 ROBUST TIME PARSER (MULTI-FORMAT SUPPORT)
+//////////////////////////////////////////////////////////////
+
+func parseTimeSafe(input string) (time.Time, error) {
+
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+
+	var err error
+	for _, layout := range layouts {
+		t, e := time.Parse(layout, input)
+		if e == nil {
+			return t.UTC(), nil
+		}
+		err = e
+	}
+
+	return time.Time{}, fmt.Errorf("unsupported time format: %s", input)
+}
+
+//////////////////////////////////////////////////////////////
+// 🔥 SAFE STRING NORMALIZER
+//////////////////////////////////////////////////////////////
+
+func normalizeStatus(status string) string {
+	s := strings.ToLower(status)
+
+	switch {
+	case strings.Contains(s, "won"),
+		strings.Contains(s, "completed"),
+		strings.Contains(s, "result"):
+		return "completed"
+
+	case strings.Contains(s, "live"),
+		strings.Contains(s, "progress"):
+		return "live"
+
+	case strings.Contains(s, "upcoming"),
+		strings.Contains(s, "scheduled"):
+		return "upcoming"
+	}
+
+	return "completed" // fallback (safe default)
+}
+
+//////////////////////////////////////////////////////////////
+// 🚀 MAIN SYNC FUNCTION (PRODUCTION SAFE)
 //////////////////////////////////////////////////////////////
 
 func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
+	start := time.Now()
+
 	matches, err := providers.FetchMatches()
 	if err != nil {
-		return err
+		return fmt.Errorf("fetch failed: %w", err)
 	}
 
-	log.Println("📦 MATCHES RECEIVED:", len(matches))
+	log.Println("📡 MATCHES RECEIVED:", len(matches))
 
 	if len(matches) == 0 {
 		log.Println("⚠️ NO MATCHES FROM API")
 		return nil
 	}
 
+	success := 0
+	failed := 0
+	skipped := 0
+
 	for _, m := range matches {
 
-		var (
-			teamA, teamB string
-			venue        string
-			status       string
-			matchID      string
-			startTime    time.Time
-			parseErr     error
-		)
+		var teamA, teamB, venue, status, matchID string
+		var startTime time.Time
 
 		//////////////////////////////////////////////////////////////
-		// ✅ CASE 1: ENTITY API STRUCTURE
+		// ✅ CASE 1: ENTITY API
 		//////////////////////////////////////////////////////////////
 
 		if teama, ok := m["teama"].(map[string]interface{}); ok {
@@ -51,72 +102,70 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 			venueObj, okV := m["venue"].(map[string]interface{})
 
 			if !okB || !okV {
-				log.Println("❌ INVALID ENTITY STRUCTURE")
+				log.Println("❌ ENTITY INVALID STRUCTURE")
+				skipped++
 				continue
 			}
 
 			teamA = fmt.Sprintf("%v", teama["name"])
 			teamB = fmt.Sprintf("%v", teamb["name"])
 			venue = fmt.Sprintf("%v", venueObj["name"])
+			status = normalizeStatus(fmt.Sprintf("%v", m["status_str"]))
 			matchID = fmt.Sprintf("%v", m["match_id"])
 
-			// 🔥 STATUS NORMALIZATION
-			rawStatus := fmt.Sprintf("%v", m["status_str"])
-			status = normalizeStatus(rawStatus, false, false)
-
-			// 🔥 TIME PARSE
 			startTimeStr := fmt.Sprintf("%v", m["date_start"])
-			startTime, parseErr = time.Parse("2006-01-02 15:04:05", startTimeStr)
+
+			startTime, err = parseTimeSafe(startTimeStr)
+			if err != nil {
+				log.Println("❌ ENTITY TIME ERROR:", err)
+				skipped++
+				continue
+			}
 		}
 
 		//////////////////////////////////////////////////////////////
-		// ✅ CASE 2: CRIC API STRUCTURE
+		// ✅ CASE 2: CRIC API
 		//////////////////////////////////////////////////////////////
 
 		if teams, ok := m["teams"].([]interface{}); ok {
 
-			if len(teams) >= 2 {
-				teamA = fmt.Sprintf("%v", teams[0])
-				teamB = fmt.Sprintf("%v", teams[1])
+			if len(teams) < 2 {
+				log.Println("❌ CRIC INVALID TEAMS")
+				skipped++
+				continue
 			}
 
+			teamA = fmt.Sprintf("%v", teams[0])
+			teamB = fmt.Sprintf("%v", teams[1])
 			venue = fmt.Sprintf("%v", m["venue"])
+			status = normalizeStatus(fmt.Sprintf("%v", m["status"]))
 			matchID = fmt.Sprintf("%v", m["id"])
 
 			startTimeStr := fmt.Sprintf("%v", m["dateTimeGMT"])
-			startTime, parseErr = time.Parse(time.RFC3339, startTimeStr)
 
-			rawStatus := fmt.Sprintf("%v", m["status"])
-			matchStarted, _ := m["matchStarted"].(bool)
-			matchEnded, _ := m["matchEnded"].(bool)
-
-			status = normalizeStatus(rawStatus, matchStarted, matchEnded)
+			startTime, err = parseTimeSafe(startTimeStr)
+			if err != nil {
+				log.Println("❌ CRIC TIME ERROR:", err)
+				skipped++
+				continue
+			}
 		}
 
 		//////////////////////////////////////////////////////////////
-		// 🚨 VALIDATION (STRICT)
+		// 🚨 FINAL VALIDATION
 		//////////////////////////////////////////////////////////////
 
-		if teamA == "" || teamB == "" {
-			log.Println("❌ SKIPPING INVALID MATCH (NO TEAMS)")
-			continue
-		}
-
-		if matchID == "" {
-			log.Println("❌ SKIPPING INVALID MATCH (NO ID)")
-			continue
-		}
-
-		if parseErr != nil {
-			log.Println("❌ TIME PARSE ERROR:", parseErr)
+		if teamA == "" || teamB == "" || matchID == "" {
+			log.Println("❌ INVALID MATCH DATA")
+			skipped++
 			continue
 		}
 
 		//////////////////////////////////////////////////////////////
-		// 🔥 UPSERT INTO DB
+		// 🔥 DB UPSERT (STRONG)
 		//////////////////////////////////////////////////////////////
 
-		_, err = db.ExecContext(ctx, `
+		res, err := db.ExecContext(ctx, `
 			INSERT INTO matches_master
 			(external_id, team_a, team_b, venue, start_time, status)
 			VALUES ($1,$2,$3,$4,$5,$6)
@@ -138,56 +187,59 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
 		if err != nil {
 			log.Println("❌ DB ERROR:", err)
+			failed++
 			continue
 		}
 
-		log.Printf("✅ SYNCED: %s vs %s [%s]", teamA, teamB, status)
+		rows, _ := res.RowsAffected()
+
+		log.Printf("✅ UPSERT OK | %s vs %s | status=%s | rows=%d\n",
+			teamA, teamB, status, rows)
+
+		//////////////////////////////////////////////////////////////
+		// 🔥 EVENT QUEUE (OPTIONAL)
+		//////////////////////////////////////////////////////////////
+
+		if status == "completed" {
+			queue.Enqueue(queue.Job{
+				Type: "match_complete",
+				Data: matchID,
+				Key:  matchID,
+			})
+		}
+
+		success++
 	}
 
 	//////////////////////////////////////////////////////////////
 	// 🔥 CACHE INVALIDATION
 	//////////////////////////////////////////////////////////////
 
-	if cache.Rdb != nil {
-		cache.Rdb.Del(cache.Ctx, "matches:v1")
-	}
+	cache.Rdb.Del(cache.Ctx, "matches:v1")
 
-	log.Println("✅ MATCH SYNC COMPLETED")
+	//////////////////////////////////////////////////////////////
+	// 📊 FINAL METRICS
+	//////////////////////////////////////////////////////////////
+
+	log.Println("===================================")
+	log.Println("📊 INGESTION SUMMARY")
+	log.Println("✅ Success:", success)
+	log.Println("❌ Failed:", failed)
+	log.Println("⚠️ Skipped:", skipped)
+	log.Println("⏱ Duration:", time.Since(start))
+	log.Println("===================================")
 
 	return nil
 }
 
 //////////////////////////////////////////////////////////////
-// FALLBACK WRAPPER
+// 🚀 WRAPPER
 //////////////////////////////////////////////////////////////
 
 func SyncMatchesToDB(db *sql.DB) error {
+
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+
 	return SyncMatchesToDBWithCtx(ctx, db)
-}
-
-//////////////////////////////////////////////////////////////
-// 🔥 STATUS NORMALIZATION (CORE LOGIC)
-//////////////////////////////////////////////////////////////
-
-func normalizeStatus(raw string, started bool, ended bool) string {
-
-	raw = strings.ToLower(raw)
-
-	// ✅ COMPLETED
-	if ended ||
-		strings.Contains(raw, "won") ||
-		strings.Contains(raw, "match ended") ||
-		strings.Contains(raw, "result") {
-		return "completed"
-	}
-
-	// ✅ LIVE
-	if started {
-		return "live"
-	}
-
-	// ✅ UPCOMING
-	return "upcoming"
 }
