@@ -10,8 +10,11 @@ import (
 
 	"gully-cricket/internal/cache"
 	"gully-cricket/internal/providers"
-	"gully-cricket/internal/queue"
 )
+
+//////////////////////////////////////////////////////////////
+// MAIN SYNC FUNCTION
+//////////////////////////////////////////////////////////////
 
 func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
@@ -20,7 +23,7 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
-	log.Println("MATCHES RECEIVED:", len(matches))
+	log.Println("📦 MATCHES RECEIVED:", len(matches))
 
 	if len(matches) == 0 {
 		log.Println("⚠️ NO MATCHES FROM API")
@@ -29,74 +32,88 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
 	for _, m := range matches {
 
-		var teamA, teamB, venue, status, matchID string
-		var startTime time.Time
+		var (
+			teamA, teamB string
+			venue        string
+			status       string
+			matchID      string
+			startTime    time.Time
+			parseErr     error
+		)
 
 		//////////////////////////////////////////////////////////////
-		// 🔥 DETECT SOURCE (STRICT)
+		// ✅ CASE 1: ENTITY API STRUCTURE
 		//////////////////////////////////////////////////////////////
 
-		if _, ok := m["teama"]; ok {
-			// ✅ ENTITY API
+		if teama, ok := m["teama"].(map[string]interface{}); ok {
 
-			teama := m["teama"].(map[string]interface{})
-			teamb := m["teamb"].(map[string]interface{})
-			venueObj := m["venue"].(map[string]interface{})
+			teamb, okB := m["teamb"].(map[string]interface{})
+			venueObj, okV := m["venue"].(map[string]interface{})
+
+			if !okB || !okV {
+				log.Println("❌ INVALID ENTITY STRUCTURE")
+				continue
+			}
 
 			teamA = fmt.Sprintf("%v", teama["name"])
 			teamB = fmt.Sprintf("%v", teamb["name"])
 			venue = fmt.Sprintf("%v", venueObj["name"])
-			status = fmt.Sprintf("%v", m["status_str"])
 			matchID = fmt.Sprintf("%v", m["match_id"])
 
+			// 🔥 STATUS NORMALIZATION
+			rawStatus := fmt.Sprintf("%v", m["status_str"])
+			status = normalizeStatus(rawStatus, false, false)
+
+			// 🔥 TIME PARSE
 			startTimeStr := fmt.Sprintf("%v", m["date_start"])
-			startTime, err = time.Parse("2006-01-02 15:04:05", startTimeStr)
+			startTime, parseErr = time.Parse("2006-01-02 15:04:05", startTimeStr)
+		}
 
-		} else if _, ok := m["teams"]; ok {
-			// ✅ CRIC API
+		//////////////////////////////////////////////////////////////
+		// ✅ CASE 2: CRIC API STRUCTURE
+		//////////////////////////////////////////////////////////////
 
-			teams, _ := m["teams"].([]interface{})
+		if teams, ok := m["teams"].([]interface{}); ok {
 
-			if len(teams) < 2 {
-				continue
+			if len(teams) >= 2 {
+				teamA = fmt.Sprintf("%v", teams[0])
+				teamB = fmt.Sprintf("%v", teams[1])
 			}
 
-			teamA = fmt.Sprintf("%v", teams[0])
-			teamB = fmt.Sprintf("%v", teams[1])
 			venue = fmt.Sprintf("%v", m["venue"])
 			matchID = fmt.Sprintf("%v", m["id"])
 
-			rawStatus := fmt.Sprintf("%v", m["status"])
-
-			// 🔥 NORMALIZE STATUS (CRITICAL)
-			lower := strings.ToLower(rawStatus)
-
-			if strings.Contains(lower, "won") {
-				status = "completed"
-			} else {
-				status = "live"
-			}
-
 			startTimeStr := fmt.Sprintf("%v", m["dateTimeGMT"])
-			startTime, err = time.Parse(time.RFC3339, startTimeStr)
+			startTime, parseErr = time.Parse(time.RFC3339, startTimeStr)
+
+			rawStatus := fmt.Sprintf("%v", m["status"])
+			matchStarted, _ := m["matchStarted"].(bool)
+			matchEnded, _ := m["matchEnded"].(bool)
+
+			status = normalizeStatus(rawStatus, matchStarted, matchEnded)
 		}
 
 		//////////////////////////////////////////////////////////////
-		// 🚨 VALIDATION
+		// 🚨 VALIDATION (STRICT)
 		//////////////////////////////////////////////////////////////
 
 		if teamA == "" || teamB == "" {
-			log.Println("❌ INVALID MATCH, SKIPPING")
+			log.Println("❌ SKIPPING INVALID MATCH (NO TEAMS)")
 			continue
 		}
 
-		if err != nil {
-			log.Println("❌ TIME PARSE ERROR:", err)
+		if matchID == "" {
+			log.Println("❌ SKIPPING INVALID MATCH (NO ID)")
+			continue
+		}
+
+		if parseErr != nil {
+			log.Println("❌ TIME PARSE ERROR:", parseErr)
 			continue
 		}
 
 		//////////////////////////////////////////////////////////////
-		// 🔥 UPSERT
+		// 🔥 UPSERT INTO DB
 		//////////////////////////////////////////////////////////////
 
 		_, err = db.ExecContext(ctx, `
@@ -124,23 +141,11 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 			continue
 		}
 
-		//////////////////////////////////////////////////////////////
-		// 🔥 EVENT TRIGGER (QUEUE USED → NO BUILD ERROR)
-		//////////////////////////////////////////////////////////////
-
-		if status == "completed" {
-			queue.Enqueue(queue.Job{
-				Type: "match_complete",
-				Data: matchID,
-				Key:  matchID,
-			})
-		}
-
-		log.Println("✅ SYNCED:", teamA, "vs", teamB)
+		log.Printf("✅ SYNCED: %s vs %s [%s]", teamA, teamB, status)
 	}
 
 	//////////////////////////////////////////////////////////////
-	// 🔥 SAFE CACHE CLEAR
+	// 🔥 CACHE INVALIDATION
 	//////////////////////////////////////////////////////////////
 
 	if cache.Rdb != nil {
@@ -152,8 +157,37 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+//////////////////////////////////////////////////////////////
+// FALLBACK WRAPPER
+//////////////////////////////////////////////////////////////
+
 func SyncMatchesToDB(db *sql.DB) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return SyncMatchesToDBWithCtx(ctx, db)
+}
+
+//////////////////////////////////////////////////////////////
+// 🔥 STATUS NORMALIZATION (CORE LOGIC)
+//////////////////////////////////////////////////////////////
+
+func normalizeStatus(raw string, started bool, ended bool) string {
+
+	raw = strings.ToLower(raw)
+
+	// ✅ COMPLETED
+	if ended ||
+		strings.Contains(raw, "won") ||
+		strings.Contains(raw, "match ended") ||
+		strings.Contains(raw, "result") {
+		return "completed"
+	}
+
+	// ✅ LIVE
+	if started {
+		return "live"
+	}
+
+	// ✅ UPCOMING
+	return "upcoming"
 }
