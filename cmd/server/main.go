@@ -214,11 +214,18 @@ func main() {
 	// SERVER START
 	//////////////////////////////////////////////////////////////
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+port := os.Getenv("PORT")
 
-	log.Println("🚀 Server running on port", port)
-	log.Fatal(app.Listen(":" + port))
+if port == "" {
+	log.Println("⚠️ PORT not set, defaulting to 8080")
+	port = "8080"
+}
+
+// 🔥 MUST bind to 0.0.0.0 explicitly
+addr := "0.0.0.0:" + port
+
+log.Println("🚀 Server running on", addr)
+
+if err := app.Listen(addr); err != nil {
+	log.Fatal("Server failed:", err)
 }
