@@ -28,77 +28,94 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
 	for _, m := range matches {
 
-		matchID := fmt.Sprintf("%v", m["match_id"])
+	var teamA, teamB, venue, status, matchID string
+	var startTime time.Time
+	var err error
 
-		teama, okA := m["teama"].(map[string]interface{})
-		teamb, okB := m["teamb"].(map[string]interface{})
-		venueObj, okV := m["venue"].(map[string]interface{})
+	//////////////////////////////////////////////////////////////
+	// ✅ CASE 1: ENTITY API STRUCTURE
+	//////////////////////////////////////////////////////////////
 
-		if !okA || !okB || !okV {
-			log.Println("❌ INVALID MATCH STRUCTURE, SKIPPING")
-			continue
-		}
+	if teama, ok := m["teama"].(map[string]interface{}); ok {
 
-		teamA := fmt.Sprintf("%v", teama["name"])
-		teamB := fmt.Sprintf("%v", teamb["name"])
-		venue := fmt.Sprintf("%v", venueObj["name"])
-		status := fmt.Sprintf("%v", m["status_str"])
+		teamb := m["teamb"].(map[string]interface{})
+		venueObj := m["venue"].(map[string]interface{})
+
+		teamA = fmt.Sprintf("%v", teama["name"])
+		teamB = fmt.Sprintf("%v", teamb["name"])
+		venue = fmt.Sprintf("%v", venueObj["name"])
+		status = fmt.Sprintf("%v", m["status_str"])
+		matchID = fmt.Sprintf("%v", m["match_id"])
 
 		startTimeStr := fmt.Sprintf("%v", m["date_start"])
+		startTime, err = time.Parse("2006-01-02 15:04:05", startTimeStr)
 
-		startTime, err := time.Parse("2006-01-02 15:04:05", startTimeStr)
-		if err != nil {
-			log.Println("❌ TIME PARSE ERROR:", err)
-			continue
-		}
-
-		//////////////////////////////////////////////////////////////
-		// 🔥 UPSERT MATCH
-		//////////////////////////////////////////////////////////////
-
-		_, err = db.ExecContext(ctx, `
-			INSERT INTO matches_master
-			(external_id, team_a, team_b, venue, start_time, status)
-			VALUES ($1,$2,$3,$4,$5,$6)
-			ON CONFLICT (external_id)
-			DO UPDATE SET
-				team_a = EXCLUDED.team_a,
-				team_b = EXCLUDED.team_b,
-				venue = EXCLUDED.venue,
-				start_time = EXCLUDED.start_time,
-				status = EXCLUDED.status
-		`,
-			matchID,
-			teamA,
-			teamB,
-			venue,
-			startTime,
-			status,
-		)
-
-		if err != nil {
-			log.Println("❌ MATCH INSERT ERROR:", err)
-			continue
-		}
-		
-
-		//////////////////////////////////////////////////////////////
-		// 🔥 EVENT TRIGGER
-		//////////////////////////////////////////////////////////////
-
-		if status == "Completed" {
-			matchIDInt := 0
-			fmt.Sscanf(matchID, "%d", &matchIDInt)
-
-			queue.Enqueue(queue.Job{
-	Type: "match_complete",
-	Data: matchIDInt,
-	Key:  matchID, // keep string for sharding
-})
-		}
-
-		log.Println("✅ SYNCED:", teamA, "vs", teamB)
 	}
+
+	//////////////////////////////////////////////////////////////
+	// ✅ CASE 2: CRIC API STRUCTURE
+	//////////////////////////////////////////////////////////////
+
+	if teams, ok := m["teams"].([]interface{}); ok {
+
+		if len(teams) >= 2 {
+			teamA = fmt.Sprintf("%v", teams[0])
+			teamB = fmt.Sprintf("%v", teams[1])
+		}
+
+		venue = fmt.Sprintf("%v", m["venue"])
+		status = fmt.Sprintf("%v", m["status"])
+		matchID = fmt.Sprintf("%v", m["id"])
+
+		startTimeStr := fmt.Sprintf("%v", m["dateTimeGMT"])
+		startTime, err = time.Parse(time.RFC3339, startTimeStr)
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🚨 VALIDATION (MANDATORY)
+	//////////////////////////////////////////////////////////////
+
+	if teamA == "" || teamB == "" {
+		log.Println("❌ SKIPPING INVALID MATCH")
+		continue
+	}
+
+	if err != nil {
+		log.Println("❌ TIME PARSE ERROR:", err)
+		continue
+	}
+
+	//////////////////////////////////////////////////////////////
+	// 🔥 UPSERT
+	//////////////////////////////////////////////////////////////
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO matches_master
+		(external_id, team_a, team_b, venue, start_time, status)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (external_id)
+		DO UPDATE SET
+			team_a = EXCLUDED.team_a,
+			team_b = EXCLUDED.team_b,
+			venue = EXCLUDED.venue,
+			start_time = EXCLUDED.start_time,
+			status = EXCLUDED.status
+	`,
+		matchID,
+		teamA,
+		teamB,
+		venue,
+		startTime,
+		status,
+	)
+
+	if err != nil {
+		log.Println("❌ DB ERROR:", err)
+		continue
+	}
+
+	log.Println("✅ SYNCED:", teamA, "vs", teamB)
+}
 	// 🔥 CACHE INVALIDATION (MANDATORY)
 		cache.Rdb.Del(cache.Ctx, "matches:v1")
 
