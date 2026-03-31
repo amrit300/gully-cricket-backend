@@ -14,7 +14,7 @@ import (
 
 func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 
-	matches, err := providers.FetchMatchesFromEntityAPI()
+	matches, err := providers.FetchMatches()
 	if err != nil {
 		return err
 	}
