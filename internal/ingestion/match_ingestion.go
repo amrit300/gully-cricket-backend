@@ -34,8 +34,7 @@ func parseTimeSafe(input string) (time.Time, error) {
 		lasterr = e
 	}
 
-	return time.Time{}, fmt.Errorf("unsupported time format: %s", input)
-}
+	return time.Time{}, fmt.Errorf("unsupported time format: %s", input, lasterr)}
 
 //////////////////////////////////////////////////////////////
 // 🔥 SAFE STRING NORMALIZER
