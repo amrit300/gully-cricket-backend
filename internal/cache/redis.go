@@ -16,29 +16,17 @@ func InitRedis() {
 
 	url := os.Getenv("REDIS_URL")
 
-	if url == "" {
-		log.Println("⚠️ REDIS_URL not set — cache disabled")
-		Rdb = nil
+	opt, err := redis.ParseURL(url)
+	if err != nil {
+		log.Println("⚠️ Redis parse failed — running without cache:", err)
 		return
 	}
 
-	Rdb = redis.NewClient(&redis.Options{
-		Addr:         url,
-		Password:     "", // set if needed
-		DB:           0,
-		ReadTimeout:  2 * time.Second,
-		WriteTimeout: 2 * time.Second,
-		PoolSize:     50,
-		MinIdleConns: 10,
-	})
+	Rdb = redis.NewClient(opt)
 
-	// 🔥 SAFE PING (NO PANIC)
-	_, err := Rdb.Ping(Ctx).Result()
+	_, err = Rdb.Ping(Ctx).Result()
 	if err != nil {
 		log.Println("⚠️ Redis connection failed — running without cache:", err)
-
-		// 🔥 CRITICAL: disable Redis instead of crashing
-		Rdb = nil
 		return
 	}
 
