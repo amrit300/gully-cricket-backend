@@ -11,7 +11,7 @@ import (
 )
 
 //////////////////////////////////////////////////////////////
-// HTTP CLIENT (REUSE)
+// 🔥 HTTP CLIENT (HARDENED)
 //////////////////////////////////////////////////////////////
 
 var client = &http.Client{
@@ -19,7 +19,31 @@ var client = &http.Client{
 }
 
 //////////////////////////////////////////////////////////////
-// ENTITY API (PRIMARY)
+// 🔥 SAFE HTTP EXECUTOR (REUSABLE)
+//////////////////////////////////////////////////////////////
+
+func doRequest(url string) ([]byte, error) {
+
+	res, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("http error: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status: %d", res.StatusCode)
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read error: %w", err)
+	}
+
+	return body, nil
+}
+
+//////////////////////////////////////////////////////////////
+// 🟢 ENTITY API (PRIMARY)
 //////////////////////////////////////////////////////////////
 
 func FetchMatchesFromEntityAPI() ([]map[string]interface{}, error) {
@@ -31,36 +55,34 @@ func FetchMatchesFromEntityAPI() ([]map[string]interface{}, error) {
 		apiKey,
 	)
 
-	res, err := client.Get(url)
+	body, err := doRequest(url)
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
 
-	body, _ := io.ReadAll(res.Body)
 	log.Println("🔍 ENTITY RAW:", string(body))
 
 	var raw map[string]interface{}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("entity decode error: %w", err)
 	}
 
 	response, ok := raw["response"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("invalid response structure")
+		return nil, fmt.Errorf("entity invalid response structure")
 	}
 
 	items, ok := response["items"].([]interface{})
 	if !ok {
-		log.Println("⚠️ ENTITY: no items found")
+		log.Println("⚠️ ENTITY: empty items")
 		return []map[string]interface{}{}, nil
 	}
 
 	var matches []map[string]interface{}
 
-	for _, m := range items {
-		if matchMap, ok := m.(map[string]interface{}); ok {
-			matches = append(matches, matchMap)
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			matches = append(matches, m)
 		}
 	}
 
@@ -68,7 +90,7 @@ func FetchMatchesFromEntityAPI() ([]map[string]interface{}, error) {
 }
 
 //////////////////////////////////////////////////////////////
-// FALLBACK API (CRIC API)
+// 🔵 CRIC API (FALLBACK - HARDENED)
 //////////////////////////////////////////////////////////////
 
 func FetchMatchesFromCricAPI() ([]map[string]interface{}, error) {
@@ -80,26 +102,31 @@ func FetchMatchesFromCricAPI() ([]map[string]interface{}, error) {
 		apiKey,
 	)
 
-	res, err := client.Get(url)
+	body, err := doRequest(url)
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+
+	log.Println("🔍 CRIC RAW:", string(body))
 
 	var raw map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("cric decode error: %w", err)
 	}
 
-	// 🔥 THIS IS THE FIX
-	data, ok := raw["data"].([]interface{})
+	dataRaw, ok := raw["data"]
 	if !ok {
-		return nil, fmt.Errorf("invalid API structure: data missing")
+		return nil, fmt.Errorf("cric missing data field")
+	}
+
+	dataSlice, ok := dataRaw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("cric invalid data format")
 	}
 
 	var matches []map[string]interface{}
 
-	for _, item := range data {
+	for _, item := range dataSlice {
 		if m, ok := item.(map[string]interface{}); ok {
 			matches = append(matches, m)
 		}
@@ -107,16 +134,14 @@ func FetchMatchesFromCricAPI() ([]map[string]interface{}, error) {
 
 	return matches, nil
 }
+
 //////////////////////////////////////////////////////////////
-// SMART FETCH (PRIMARY + FALLBACK)
+// 🚀 SMART FETCH (PRIMARY → FALLBACK)
 //////////////////////////////////////////////////////////////
 
 func FetchMatches() ([]map[string]interface{}, error) {
 
-	//////////////////////////////////////////////////////////////
-	// 1. TRY ENTITY API
-	//////////////////////////////////////////////////////////////
-
+	// 1️⃣ ENTITY FIRST
 	matches, err := FetchMatchesFromEntityAPI()
 	if err == nil && len(matches) > 0 {
 		log.Println("✅ Using ENTITY API:", len(matches))
@@ -125,13 +150,10 @@ func FetchMatches() ([]map[string]interface{}, error) {
 
 	log.Println("⚠️ ENTITY failed or empty — switching to CRIC API")
 
-	//////////////////////////////////////////////////////////////
-	// 2. FALLBACK → CRIC API
-	//////////////////////////////////////////////////////////////
-
+	// 2️⃣ FALLBACK
 	fallbackMatches, err := FetchMatchesFromCricAPI()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fallback failed: %w", err)
 	}
 
 	log.Println("✅ Using CRIC API:", len(fallbackMatches))
@@ -140,7 +162,7 @@ func FetchMatches() ([]map[string]interface{}, error) {
 }
 
 //////////////////////////////////////////////////////////////
-// PLAYERS (SAFE VERSION)
+// 👤 PLAYERS (SAFE + HARDENED)
 //////////////////////////////////////////////////////////////
 
 func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error) {
@@ -153,20 +175,19 @@ func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error)
 		apiKey,
 	)
 
-	res, err := client.Get(url)
+	body, err := doRequest(url)
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
 
 	var raw map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
-		return nil, err
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("players decode error: %w", err)
 	}
 
 	response, ok := raw["response"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("invalid response")
+		return nil, fmt.Errorf("invalid players response")
 	}
 
 	squads, ok := response["squads"].([]interface{})
@@ -177,6 +198,7 @@ func FetchPlayersFromEntityAPI(matchID string) ([]map[string]interface{}, error)
 	var players []map[string]interface{}
 
 	for _, team := range squads {
+
 		t, ok := team.(map[string]interface{})
 		if !ok {
 			continue
