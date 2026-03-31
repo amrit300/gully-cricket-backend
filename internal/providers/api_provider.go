@@ -102,20 +102,34 @@ func FetchMatchesFromCricAPI() ([]map[string]interface{}, error) {
 	var matches []map[string]interface{}
 
 	for _, m := range data {
-		if matchMap, ok := m.(map[string]interface{}); ok {
+	if matchMap, ok := m.(map[string]interface{}); ok {
 
-			// 🔥 NORMALIZE STRUCTURE
-			match := map[string]interface{}{
-				"teamA":     matchMap["teamInfo"], // adapt later if needed
-				"teamB":     matchMap["teamInfo"],
-				"status":    matchMap["status"],
-				"venue":     matchMap["venue"],
-				"startTime": matchMap["dateTimeGMT"],
-			}
+		// 🔥 SAFE TEAM EXTRACTION
+		teams, _ := matchMap["teams"].([]interface{})
 
-			matches = append(matches, match)
+		var teamA, teamB string
+
+		if len(teams) >= 2 {
+			teamA, _ = teams[0].(string)
+			teamB, _ = teams[1].(string)
 		}
+
+		// 🔥 SKIP INVALID MATCHES (CRITICAL)
+		if teamA == "" || teamB == "" {
+			continue
+		}
+
+		match := map[string]interface{}{
+			"teamA":     teamA,
+			"teamB":     teamB,
+			"status":    fmt.Sprintf("%v", matchMap["status"]),
+			"venue":     fmt.Sprintf("%v", matchMap["venue"]),
+			"startTime": fmt.Sprintf("%v", matchMap["dateTimeGMT"]),
+		}
+
+		matches = append(matches, match)
 	}
+}
 
 	return matches, nil
 }
