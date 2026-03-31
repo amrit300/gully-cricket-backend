@@ -116,17 +116,19 @@ func main() {
 	// INITIAL SYNC
 	//////////////////////////////////////////////////////////////
 
+	go func() {
 	log.Println("🚀 Initial match sync...")
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	
-	if err = ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
-	log.Println("Initial sync error:", err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	if err := ingestion.SyncMatchesToDBWithCtx(ctx, db); err != nil {
+		log.Println("Initial sync error:", err)
+		return
 	}
-	
-	cancel()
-	
+
 	log.Println("✅ Initial match sync done")
+}()
 
 	//////////////////////////////////////////////////////////////
 	// FIBER APP
