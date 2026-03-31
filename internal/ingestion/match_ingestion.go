@@ -46,6 +46,7 @@ func parseTimeSafe(input string) (time.Time, error) {
 
 	return time.Time{}, fmt.Errorf("unsupported time format: %s | %v", input, lastErr)
 }
+
 //////////////////////////////////////////////////////////////
 // 🔥 SAFE STRING NORMALIZER
 //////////////////////////////////////////////////////////////
@@ -68,7 +69,7 @@ func normalizeStatus(status string) string {
 		return "upcoming"
 	}
 
-	return "completed" // fallback (safe default)
+	return "completed"
 }
 
 //////////////////////////////////////////////////////////////
@@ -101,84 +102,78 @@ func SyncMatchesToDBWithCtx(ctx context.Context, db *sql.DB) error {
 		var startTime time.Time
 
 		//////////////////////////////////////////////////////////////
-// 🔥 SMART PARSER (ENTITY → CRIC FALLBACK)
-//////////////////////////////////////////////////////////////
+		// 🔥 SMART PARSER (ENTITY → CRIC FALLBACK)
+		//////////////////////////////////////////////////////////////
 
-if teama, ok := m["teama"].(map[string]interface{}); ok {
+		if teama, ok := m["teama"].(map[string]interface{}); ok {
 
-	// ================= ENTITY =================
+			// ================= ENTITY =================
 
-	teamb, okB := m["teamb"].(map[string]interface{})
-	venueObj, okV := m["venue"].(map[string]interface{})
+			teamb, okB := m["teamb"].(map[string]interface{})
+			venueObj, okV := m["venue"].(map[string]interface{})
 
-	if !okB || !okV {
-		log.Println("❌ ENTITY INVALID STRUCTURE")
-		skipped++
-		continue
-	}
+			if !okB || !okV {
+				log.Println("❌ ENTITY INVALID STRUCTURE")
+				skipped++
+				continue
+			}
 
-	teamA = fmt.Sprintf("%v", teama["name"])
-	teamB = fmt.Sprintf("%v", teamb["name"])
-	venue = fmt.Sprintf("%v", venueObj["name"])
-	status = normalizeStatus(fmt.Sprintf("%v", m["status_str"]))
-	matchID = fmt.Sprintf("%v", m["match_id"])
+			teamA = fmt.Sprintf("%v", teama["name"])
+			teamB = fmt.Sprintf("%v", teamb["name"])
+			venue = fmt.Sprintf("%v", venueObj["name"])
+			status = normalizeStatus(fmt.Sprintf("%v", m["status_str"]))
+			matchID = fmt.Sprintf("%v", m["match_id"])
 
-	startTimeStr := fmt.Sprintf("%v", m["date_start"])
+			startTimeStr := fmt.Sprintf("%v", m["date_start"])
 
-	startTime, err = parseTimeSafe(startTimeStr)
-	if err != nil {
-		log.Println("❌ ENTITY TIME ERROR:", err)
-		skipped++
-		continue
-	}
+			startTime, err = parseTimeSafe(startTimeStr)
+			if err != nil {
+				log.Println("❌ ENTITY TIME ERROR:", err)
+				skipped++
+				continue
+			}
 
-} else {
+		} else {
 
-	// ================= CRIC (FORCED FALLBACK) =================
+			// ================= CRIC =================
 
-	teamsRaw, ok := m["teams"]
-	if !ok {
-		log.Println("❌ CRIC: teams missing")
-		skipped++
-		continue
-	}
+			teamsRaw, ok := m["teams"]
+			if !ok {
+				log.Println("❌ CRIC: teams missing")
+				skipped++
+				continue
+			}
 
-	teams, ok := teamsRaw.([]interface{})
-if !ok {
-	log.Println("❌ CRIC: invalid teams type")
-	skipped++
-	continue
-}
+			teams, ok := teamsRaw.([]interface{})
+			if !ok {
+				log.Println("❌ CRIC: invalid teams type")
+				skipped++
+				continue
+			}
 
-if len(teams) < 2 {
-	log.Println("❌ CRIC: insufficient teams")
-	skipped++
-	continue
-}
+			if len(teams) < 2 {
+				log.Println("❌ CRIC: insufficient teams")
+				skipped++
+				continue
+			}
 
-teamA = fmt.Sprintf("%v", teams[0])
-teamB = fmt.Sprintf("%v", teams[1])
-	default:
-		log.Println("❌ CRIC: unknown teams type")
-		skipped++
-		continue
-	}
+			teamA = fmt.Sprintf("%v", teams[0])
+			teamB = fmt.Sprintf("%v", teams[1])
+			matchID = fmt.Sprintf("%v", m["id"])
+			venue = fmt.Sprintf("%v", m["venue"])
+			status = normalizeStatus(fmt.Sprintf("%v", m["status"]))
 
-	matchID = fmt.Sprintf("%v", m["id"])
-	venue = fmt.Sprintf("%v", m["venue"])
-	status = normalizeStatus(fmt.Sprintf("%v", m["status"]))
+			startTimeStr := fmt.Sprintf("%v", m["dateTimeGMT"])
 
-	startTimeStr := fmt.Sprintf("%v", m["dateTimeGMT"])
+			startTime, err = parseTimeSafe(startTimeStr)
+			if err != nil {
+				log.Println("❌ CRIC TIME ERROR:", err)
+				skipped++
+				continue
+			}
 
-	startTime, err = parseTimeSafe(startTimeStr)
-	if err != nil {
-		log.Println("❌ CRIC TIME ERROR:", err)
-		skipped++
-		continue
-	}
-
-	log.Printf("🔥 CRIC OK → %s vs %s | %s\n", teamA, teamB, matchID)
-}
+			log.Printf("🔥 CRIC OK → %s vs %s | %s\n", teamA, teamB, matchID)
+		}
 
 		//////////////////////////////////////////////////////////////
 		// 🚨 FINAL VALIDATION
@@ -191,7 +186,7 @@ teamB = fmt.Sprintf("%v", teams[1])
 		}
 
 		//////////////////////////////////////////////////////////////
-		// 🔥 DB UPSERT (STRONG)
+		// 🔥 DB UPSERT
 		//////////////////////////////////////////////////////////////
 
 		res, err := db.ExecContext(ctx, `
@@ -226,7 +221,7 @@ teamB = fmt.Sprintf("%v", teams[1])
 			teamA, teamB, status, rows)
 
 		//////////////////////////////////////////////////////////////
-		// 🔥 EVENT QUEUE (OPTIONAL)
+		// 🔥 EVENT QUEUE
 		//////////////////////////////////////////////////////////////
 
 		if status == "completed" {
