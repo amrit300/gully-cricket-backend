@@ -229,3 +229,4 @@ log.Println("🚀 Server running on", addr)
 if err := app.Listen(addr); err != nil {
 	log.Fatal("Server failed:", err)
 }
+}
