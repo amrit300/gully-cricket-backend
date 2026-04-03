@@ -88,26 +88,29 @@ func GetMatches(db *sql.DB) (map[string]interface{}, error) {
 			"venue":     venue,
 		}
 
-		if strings.Contains(status, "Live") || strings.Contains(status, "Stumps") {
-			live = append(live, match)
-		} else if strings.Contains(status, "Starts") || strings.Contains(status, "Upcoming") {
-			upcoming = append(upcoming, match)
-		} else {
-			recent = append(recent, match)
-		}
+		switch status {
+
+case "live":
+	live = append(live, match)
+
+case "upcoming":
+	upcoming = append(upcoming, match)
+
+case "completed":
+	recent = append(recent, match)
+
+default:
+	recent = append(recent, match)
+}
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
+		}
 
 	//////////////////////////////////////////////////////////////
 	// 4. FALLBACK LOGIC (SAFE)
 	//////////////////////////////////////////////////////////////
-
-	if len(live) == 0 && len(upcoming) == 0 {
-		live = recent
-	}
 
 	result := map[string]interface{}{
 		"live":     live,
